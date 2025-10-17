@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp_tinyusb: "^1.7.6"
+  espressif/tinyusb: ">=0.14.2"
+  espressif/led_strip: "^2.5.2"
+  idf: "^5.0"
