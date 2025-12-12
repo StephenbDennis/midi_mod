@@ -1,86 +1,79 @@
 #include "midiManager.hpp"
 
-void MidiManager::updateStates()
+void MidiManager::updateStates(bool initial)
 {
-  // Device 1
-  int val_0_0 = 0;
-  int val_0_1 = 0;
-  int val_0_2 = 0;
-  int val_0_3 = 0;
-  int val_0_4 = 0;
+  int value = 0;
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_0, &value));
+  m_curState.modules[0].values[0] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_1, &value));
+  m_curState.modules[0].values[1] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_2, &value));
+  m_curState.modules[0].values[2] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_3, &value));
+  m_curState.modules[0].values[3] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_4, &value));
+  m_curState.modules[0].values[4] = scale(value);
+  
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_0, &value));
+  m_curState.modules[1].values[0] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_1, &value));
+  m_curState.modules[1].values[1] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_2, &value));
+  m_curState.modules[1].values[2] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_3, &value));
+  m_curState.modules[1].values[3] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_1_4, &value));
+  m_curState.modules[1].values[4] = scale(value);
+  
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_0, &value));
+  m_curState.modules[2].values[0] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_1, &value));
+  m_curState.modules[2].values[1] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_2, &value));
+  m_curState.modules[2].values[2] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_3, &value));
+  m_curState.modules[2].values[3] = scale(value);
+  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_4, &value));
+  m_curState.modules[2].values[4] = scale(value);
 
-  // Device 2
-  int val_1_0 = 0;
-  int val_1_1 = 0;
-  int val_1_2 = 0;
-  int val_1_3 = 0;
-  int val_1_4 = 0;
+  m_curState.modules[0].moduleSelect = gpio_get_level(GPIO_DEVICE_1_SELECT);
+  m_curState.modules[1].moduleSelect = gpio_get_level(GPIO_DEVICE_2_SELECT);
+  m_curState.modules[2].moduleSelect = gpio_get_level(GPIO_DEVICE_3_SELECT);
 
-  // Device 3
-  int val_2_0 = 0;
-  int val_2_1 = 0;
-  int val_2_2 = 0;
-  int val_2_3 = 0;
-  int val_2_4 = 0;
-
-  // Select
-  int device1Select = 0;
-  int device2Select = 0;
-  int device3Select = 0;
-  int layerSelect = 0;
-
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_0, &val_0_0));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_1, &val_0_1));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_2, &val_0_2));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_3, &val_0_3));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_4, &val_0_4));
-
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_0, &val_1_0));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_1, &val_1_1));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_2, &val_1_2));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_3, &val_1_3));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_1_4, &val_1_4));
-
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_0, &val_2_0));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_1, &val_2_1));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_2, &val_2_2));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_3, &val_2_3));
-  ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_4, &val_2_4));
-
-  device1Select = gpio_get_level(GPIO_DEVICE_1_SELECT);
-  device2Select = gpio_get_level(GPIO_DEVICE_2_SELECT);
-  device3Select = gpio_get_level(GPIO_DEVICE_3_SELECT);
-  layerSelect = gpio_get_level(GPIO_LAYER_SELECT);
+  if (initial)
+  {
+    m_lastState = m_curState;
+  }
 
   printf("------------------------\n");
   printf("Select:\n");
-  printf("    %d\n", device1Select);
-  printf("    %d\n", device2Select);
-  printf("    %d\n", device3Select);
-  printf("    %d\n", layerSelect);
+  printf("    %d\n", m_curState.modules[0].moduleSelect);
+  printf("    %d\n", m_curState.modules[1].moduleSelect);
+  printf("    %d\n", m_curState.modules[2].moduleSelect);
   printf("Device: %d:\n", 1);
-  printf("    %d\n", val_0_0);
-  printf("    %d\n", val_0_1);
-  printf("    %d\n", val_0_2);
-  printf("    %d\n", val_0_3);
-  printf("    %d\n", val_0_4);
+  printf("    %d\n", m_curState.modules[0].values[0]);
+  printf("    %d\n", m_curState.modules[0].values[1]);
+  printf("    %d\n", m_curState.modules[0].values[2]);
+  printf("    %d\n", m_curState.modules[0].values[3]);
+  printf("    %d\n", m_curState.modules[0].values[4]);
   printf("Device: %d:\n", 2);
-  printf("    %d\n", val_1_0);
-  printf("    %d\n", val_1_1);
-  printf("    %d\n", val_1_2);
-  printf("    %d\n", val_1_3);
-  printf("    %d\n", val_1_4);
+  printf("    %d\n", m_curState.modules[1].values[0]);
+  printf("    %d\n", m_curState.modules[1].values[1]);
+  printf("    %d\n", m_curState.modules[1].values[2]);
+  printf("    %d\n", m_curState.modules[1].values[3]);
+  printf("    %d\n", m_curState.modules[1].values[4]);
   printf("Device: %d:\n", 3);
-  printf("    %d\n", val_2_0);
-  printf("    %d\n", val_2_1);
-  printf("    %d\n", val_2_2);
-  printf("    %d\n", val_2_3);
-  printf("    %d\n", val_2_4);
+  printf("    %d\n", m_curState.modules[2].values[0]);
+  printf("    %d\n", m_curState.modules[2].values[1]);
+  printf("    %d\n", m_curState.modules[2].values[2]);
+  printf("    %d\n", m_curState.modules[2].values[3]);
+  printf("    %d\n", m_curState.modules[2].values[4]);
 }
 
-void MidiManager::initMidi()
+void MidiManager::init(Config config)
 {
-    // Setup USB
+  m_config = config;
+  // Setup USB
   tinyusb_config_t const tusb_cfg =
   {
     .device_descriptor = NULL, // If device_descriptor is NULL, tinyusb_driver_install() will use Kconfig
@@ -169,15 +162,47 @@ void MidiManager::initMidi()
 
 void MidiManager::handleUpdates()
 {
+  // uint8_t NOTE_OFF = 0x80;
+  // uint8_t NOTE_ON = 0x90;
+  // uint8_t CONTROL_CHANGE = 0xB0;
+  // uint8_t channel = 0x0;
+  // uint8_t keyVel = 0x7F;
+
+  // uint8_t EFFECT_1 = 0x0C;
+  // uint8_t EFFECT_2 = 0x0D;
+
   if (tud_midi_mounted())
   {
-    uint8_t note_on[3] = {NOTE_ON | channel, 1, keyVel};
-    tud_midi_stream_write(cable_num, note_on, 3);
-    uint8_t note_off[3] = {NOTE_OFF | channel, 1, 0};
-    tud_midi_stream_write(cable_num, note_off, 3);
-    uint8_t control_1[3] = {CONTROL_CHANGE | channel, EFFECT_1, 20};
-    tud_midi_stream_write(cable_num, control_1, 3);
-    uint8_t control_2[3] = {CONTROL_CHANGE | channel, EFFECT_2, 40};
-    tud_midi_stream_write(cable_num, control_2, 3);
+    for (int i = 0; i < 3; ++i)
+    {
+      for (int j = 0; j < 5; ++j)
+      {
+        if (m_lastState.modules[i].values[j] != m_curState.modules[i].values[j])
+        {
+          sendMidiMsg(i, j);
+        }
+      }
+    }
+
+    m_lastState = m_curState;
+
+    uint8_t note_on[3] = {0x90, 1, keyVel};
+    tud_midi_stream_write(0, note_on, 3);
+    uint8_t note_off[3] = {0x80, 1, 0};
+    tud_midi_stream_write(0, note_off, 3);
+    uint8_t control_1[3] = {0xB0, 0x0C, 20};
+    tud_midi_stream_write(0, control_1, 3);
+    uint8_t control_2[3] = {0xB0, 0x0D, 40};
+    tud_midi_stream_write(0, control_2, 3);
   }
+}
+
+uint8_t MidiManager::scale(int value)
+{
+  return (value * 127) / 4095;
+}
+
+void MidiManager::sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex)
+{
+
 }

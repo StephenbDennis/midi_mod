@@ -1,30 +1,59 @@
 
 #include <stdlib.h>
-
+#include <string>
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "led_strip.h"
+
+#include "configManager.hpp"
 #include "midiManager.hpp"
+
+#define GPIO_CONFIG       GPIO_NUM_38     // GPIO38
 
 static const char *TAG = "midi-mod";
 
-// Midi Manager
+// Managers
+static ConfigManager configManager;
 static MidiManager midiManager;
 
 void init()
 {
-  midiManager.initMidi();
+    // check config gpio
+  gpio_config_t config_conf =
+  {
+    .pin_bit_mask = 1ULL << GPIO_CONFIG,
+    .mode = GPIO_MODE_INPUT,
+    .pull_up_en = GPIO_PULLUP_DISABLE,
+    .pull_down_en = GPIO_PULLDOWN_ENABLE,
+    .intr_type = GPIO_INTR_DISABLE,
+  };
+  ESP_ERROR_CHECK(gpio_config(&config_conf));
 
-  // Init GPIO
-  midiManager.updateStates();
-  midiManager.updateStates();
+  bool configMode = gpio_get_level(GPIO_CONFIG);
+
+  configManager.init();
+
+  Config config;
+  if (false || configMode)
+  {
+    configManager.openDevice();
+  }
+  else
+  {
+    config = configManager.getConfig();
+  }
+
+  midiManager.init(config);
+
+  // get initial midi vales
+  midiManager.updateStates(true);
 }
 
 static void periodic_poll_midi_cb(void *arg)
 {
-  midiManager.updateStates();
+  midiManager.updateStates(false);
   midiManager.handleUpdates();
 }
 

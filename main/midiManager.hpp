@@ -4,6 +4,7 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "tinyusb.h"
+#include "deviceInfo.hpp"
 
 static const char* tinyUsbConfig[5] = 
 {
@@ -99,30 +100,9 @@ static const uint8_t s_midi_hs_cfg_desc[] =
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-
 // emums/structs
-enum DeviceType
-{
-  KEY =     0,
-  ANALOG =  1
-};
-
-enum MidiMsgOpcode
-{
-  NOTE_OFF =        0x80,
-  NOTE_ON =         0x90,
-  CONTROL_CHANGE =  0xB0
-};
-
-enum ControlChangeId
-{
-  EFFECT_1 =        0x0C,
-  EFFECT_2 =         0x0D
-};
-
 struct GpioStates
 {
-  enum DeviceType m_type;
   __uint16_t m_value;
 };
 
@@ -137,9 +117,12 @@ static uint8_t const keyVel = 127;  // the key press velocity
 class MidiManager
 {
   public:
-    void updateStates();
-    void initMidi();
+    void updateStates(bool initial);
+    void init(Config config);
     void handleUpdates();
-
-    
+    uint8_t scale(int value);
+    void sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex);
+    Config m_config{};
+    State m_lastState{};
+    State m_curState{};
 };
