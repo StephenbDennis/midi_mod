@@ -54,14 +54,6 @@ static uint8_t const msc_fs_configuration_desc[] = {
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 0, EDPT_MSC_OUT, EDPT_MSC_IN, 64),
 };
 
-static char const *string_desc_arr[] = {
-    (const char[]) { 0x09, 0x04 },  // 0: is supported language is English (0x0409)
-    "TinyUSB",                      // 1: Manufacturer
-    "TinyUSB Device",               // 2: Product
-    "123456",                       // 3: Serials
-    "MSC Device",                   // 4. MSC
-};
-
 #define BASE_PATH "/data" // base path to mount the partition
 
 #define PROMPT_STR CONFIG_IDF_TARGET
@@ -74,9 +66,10 @@ class ConfigManager
     void openDevice();
   private:
     void parseConfig();
-    uint8_t parseType(std::string str);
+    DeviceType parseType(std::string str);
     uint8_t parseNote(std::string str);
     uint8_t parseHex(std::string str);
+    float parseFloat(std::string str, float defaultValue);
     uint8_t parseMsg(std::string str);
     bool compareStrings(std::string str1, std::string str2);
     std::vector<std::string> split(const std::string& s, char delimiter);

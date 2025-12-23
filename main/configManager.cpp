@@ -10,8 +10,6 @@ static void _mount(void)
 
 static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
 {
-  ESP_LOGI("CONFIG", "Initializing wear levelling");
-
   const esp_partition_t *data_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, NULL);
   if (data_partition == NULL) {
       ESP_LOGE("CONFIG", "Failed to find FATFS partition. Check the partition table.");
@@ -67,12 +65,13 @@ void ConfigManager::openDevice()
 
   fprintf(f, "[module(1-3)] options:\n");
   fprintf(f, "press_velocity : 0x0-0x7F : This is the note_on message press velocity. 			                  : Defaults to 0x7F\n");
-  fprintf(f, "channel 	     : 0x0-0xF  : The channel messages are sent on. (Part of the MIDI messages) : Defaults to 0x0\n");
+  fprintf(f, "alpha	    	   : 0.01-0.5 : This value changes the responsivity of the input. Higher is faster. : Defaults to 0.3\n");
+  fprintf(f, "channel 	     : 0x0-0xF  : The channel messages are sent on. (Part of the MIDI messages)       : Defaults to 0x0\n");
   fprintf(f, "[module*.device(1-5)]\n");
-  fprintf(f, "  device_type       : analog,digital		       : If set this will read each device as 0,1 for digital or 1-127 for analog   : Defaults to module type\n");
+  fprintf(f, "  device_type       : analog,digital		       : If set this will read each device as 0,1 for digital or 1-127 for analog         : Defaults to module type\n");
   fprintf(f, "  message_on_change : note_off,note_on,cc,pc,0x0-0xF : The message to send when the value changes (analog) or rising (digital)    : Defaults to noop\n");
   fprintf(f, "  message_on_stop   : note_off,note_on,cc,pc,0x0-0xF : The message to send when the value is stale (analog) or falling (digital)  : Defaults to noop\n");
-  fprintf(f, "  data 	      : notes,0x0-0x7F                 : For messages note_off,note_on,cc,pc this will be the value in the message. : Defaults to 0x0. Overwritten by Manual Options\n");
+  fprintf(f, "  data 	      : notes,0x0-0x7F                 : For messages note_off,note_on,cc,pc this will be the value in the message.       : Defaults to 0x0. Overwritten by Manual Options\n");
   fprintf(f, "  --- Manual Options ---\n");
   fprintf(f, "  manual_data_change_0 : 0x0-0x7F,dev  : If set this will set the first data byte on a change action to this value. If dev, the value of the device is used  : Not used if not set \n");
   fprintf(f, "  manual_data_change_1 : 0x0-0x7F,dev  : If set this will set the second data byte on a change action to this value. If dev, the value of the device is used : Not used if not set\n");
@@ -163,8 +162,8 @@ void ConfigManager::openDevice()
   ESP_LOGI("CONFIG", "USB MSC initialization");
   const tinyusb_config_t tusb_cfg = {
       .device_descriptor = &descriptor_config,
-      .string_descriptor = string_desc_arr,
-      .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+      .string_descriptor = tinyUsbConfig,
+      .string_descriptor_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]),
       .external_phy = false,
       .configuration_descriptor = msc_fs_configuration_desc,
   };
@@ -208,44 +207,36 @@ void ConfigManager::parseConfig()
     
     if (compareStrings(lines[i], "[module1]"))
     {
-      ESP_LOGI("CONFIG", "M1");
       moduleIndex = 0;
     }
     else if (compareStrings(lines[i], "[module2]"))
     {
-      ESP_LOGI("CONFIG", "M2");
       moduleIndex = 1;
     }
     else if (compareStrings(lines[i], "[module3]"))
     {
-      ESP_LOGI("CONFIG", "M3");
       moduleIndex = 2;
     }
     else if (strs.size() > 1)
     {
       if (compareStrings(strs[1], "device1]"))
       {
-        ESP_LOGI("CONFIG", "D1");
         deviceIndex = 0;
       }
       if (compareStrings(strs[1], "device2]"))
       {
-        ESP_LOGI("CONFIG", "D2");
         deviceIndex = 1;
       }
       if (compareStrings(strs[1], "device3]"))
       {
-        ESP_LOGI("CONFIG", "D3");
         deviceIndex = 2;
       }
       if (compareStrings(strs[1], "device4]"))
       {
-        ESP_LOGI("CONFIG", "D4");
         deviceIndex = 3;
       }
       if (compareStrings(strs[1], "device5]"))
       {
-        ESP_LOGI("CONFIG", "D5");
         deviceIndex = 4;
       }
     }
@@ -256,52 +247,46 @@ void ConfigManager::parseConfig()
       {
         if (compareStrings(pairs[0], "press_velocity"))
         {
-          ESP_LOGI("CONFIG", "pv");
           m_config.modules[moduleIndex].m_press_velocity = parseHex(pairs[1]);
         }
         if (compareStrings(pairs[0], "channel"))
         {
-          ESP_LOGI("CONFIG", "ch");
           m_config.modules[moduleIndex].m_channel = parseHex(pairs[1]);
+        }
+        if (compareStrings(pairs[0], "alpha"))
+        {
+          m_config.modules[moduleIndex].m_alpha = parseFloat(pairs[1], 0.3);
         }
         if (compareStrings(pairs[0], "device_type"))
         {
-          ESP_LOGI("CONFIG", "type");
           m_config.modules[moduleIndex].devices[deviceIndex].m_device_type = parseType(pairs[1]);
         }
         if (compareStrings(pairs[0], "message_on_change"))
         {
-          ESP_LOGI("CONFIG", "msg_c");
           m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change = parseMsg(pairs[1]);
         }
         if (compareStrings(pairs[0], "message_on_stop"))
         {
-          ESP_LOGI("CONFIG", "msg_s");
           m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop = parseMsg(pairs[1]);
         }
         if (compareStrings(pairs[0], "data"))
         {
-          ESP_LOGI("CONFIG", "data");
           m_config.modules[moduleIndex].devices[deviceIndex].m_data = parseNote(pairs[1]);
         }
         if (compareStrings(pairs[0], "manual_data_change_0"))
         {
-          ESP_LOGI("CONFIG", "c0");
           m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 = parseHex(pairs[1]);
         }
         if (compareStrings(pairs[0], "manual_data_change_1"))
         {
-          ESP_LOGI("CONFIG", "c1");
           m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 = parseHex(pairs[1]);
         }
         if (compareStrings(pairs[0], "manual_data_stop_0"))
         {
-          ESP_LOGI("CONFIG", "s0");
           m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 = parseHex(pairs[1]);
         }
         if (compareStrings(pairs[0], "manual_data_stop_1"))
         {
-          ESP_LOGI("CONFIG", "s1");
           m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 = parseHex(pairs[1]);
         }
       }
@@ -309,24 +294,129 @@ void ConfigManager::parseConfig()
   }
 }
 
-uint8_t ConfigManager::parseType(std::string str)
+DeviceType ConfigManager::parseType(std::string str)
 {
-  return 0;
+  DeviceType ret;
+  if (compareStrings(str, "analog"))
+  {
+    ret = FORCE_ANALOG;
+  }
+  else if(compareStrings(str, "digital"))
+  {
+    ret = FORCE_DIGITAL;
+  }
+  else
+  {
+    ret = HARDWARE_DEFAULT;
+  }
+
+  return ret;
 }
 
 uint8_t ConfigManager::parseNote(std::string str)
 {
-  return 0;
+  uint8_t ret = 0;
+  std::vector<std::string> parts = split(str, '_');
+
+  if (parts.size() > 1)
+  {
+    uint8_t note = 0;
+    if (compareStrings(parts[0], "C"))
+    {
+      note = static_cast<uint8_t>(C);
+    }
+    if (compareStrings(parts[0], "C#"))
+    {
+      note = static_cast<uint8_t>(C_SHARP);
+    }
+    if (compareStrings(parts[0], "D"))
+    {
+      note = static_cast<uint8_t>(D);
+    }
+    if (compareStrings(parts[0], "D#"))
+    {
+      note = static_cast<uint8_t>(D_SHARP);
+    }
+    if (compareStrings(parts[0], "E"))
+    {
+      note = static_cast<uint8_t>(E);
+    }
+    if (compareStrings(parts[0], "F"))
+    {
+      note = static_cast<uint8_t>(F);
+    }
+    if (compareStrings(parts[0], "F#"))
+    {
+      note = static_cast<uint8_t>(F_SHARP);
+    }
+    if (compareStrings(parts[0], "G"))
+    {
+      note = static_cast<uint8_t>(G);
+    }
+    if (compareStrings(parts[0], "G#"))
+    {
+      note = static_cast<uint8_t>(G_SHARP);
+    }
+    if (compareStrings(parts[0], "A"))
+    {
+      note = static_cast<uint8_t>(A);
+    }
+    if (compareStrings(parts[0], "A#"))
+    {
+      note = static_cast<uint8_t>(A_SHARP);
+    }
+    if (compareStrings(parts[0], "B"))
+    {
+      note = static_cast<uint8_t>(B);
+    }
+
+    ret = (12 * (std::stoi(parts[1]) + 1)) + note;
+  }
+  else
+  {
+    ret = parseHex(str);
+  }
+
+  return ret;
 }
 
 uint8_t ConfigManager::parseHex(std::string str)
 {
-  return 0;
+  return compareStrings(str, "dev") ? 254 : static_cast<uint8_t>(std::stoi(str, nullptr, 16));
+}
+
+float ConfigManager::parseFloat(std::string str, float defaultValue)
+{
+  float ret = std::stof(str);
+  
+  return ret;
 }
 
 uint8_t ConfigManager::parseMsg(std::string str)
 {
-  return 0;
+  uint8_t ret = 0;
+  if (compareStrings(str, "note_off"))
+  {
+    ret = 0x80;
+  }
+  else if(compareStrings(str, "note_on"))
+  {
+    ret = 0x90;
+  }
+  else if (compareStrings(str, "cc"))
+  {
+    ret = 0xB0;
+  }
+  else if(compareStrings(str, "pc"))
+  {
+    ret = 0xC0;
+  }
+  else
+  {
+    ret = parseHex(str);
+  }
+
+  return ret;
 }
 
 bool ConfigManager::compareStrings(std::string str1, std::string str2)

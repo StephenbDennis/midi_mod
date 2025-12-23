@@ -4,37 +4,37 @@ void MidiManager::updateStates(bool initial)
 {
   int value = 0;
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_0, &value));
-  m_curState.modules[0].values[0] = scale(value);
+  m_curState.modules[0].values[0] += m_config.modules[0].m_alpha * (scale(value) - m_curState.modules[0].values[0]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_1, &value));
-  m_curState.modules[0].values[1] = scale(value);
+  m_curState.modules[0].values[1] += m_config.modules[0].m_alpha * (scale(value) - m_curState.modules[0].values[1]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_2, &value));
-  m_curState.modules[0].values[2] = scale(value);
+  m_curState.modules[0].values[2] += m_config.modules[0].m_alpha * (scale(value) - m_curState.modules[0].values[2]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_3, &value));
-  m_curState.modules[0].values[3] = scale(value);
+  m_curState.modules[0].values[3] += m_config.modules[0].m_alpha * (scale(value) - m_curState.modules[0].values[3]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_0_4, &value));
-  m_curState.modules[0].values[4] = scale(value);
+  m_curState.modules[0].values[4] += m_config.modules[0].m_alpha * (scale(value) - m_curState.modules[0].values[4]);
   
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_0, &value));
-  m_curState.modules[1].values[0] = scale(value);
+  m_curState.modules[1].values[0] += m_config.modules[1].m_alpha * (scale(value) - m_curState.modules[1].values[0]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_1, &value));
-  m_curState.modules[1].values[1] = scale(value);
+  m_curState.modules[1].values[1] += m_config.modules[1].m_alpha * (scale(value) - m_curState.modules[1].values[1]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_2, &value));
-  m_curState.modules[1].values[2] = scale(value);
+  m_curState.modules[1].values[2] += m_config.modules[1].m_alpha * (scale(value) - m_curState.modules[1].values[2]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_1_handle, ADC_1_3, &value));
-  m_curState.modules[1].values[3] = scale(value);
+  m_curState.modules[1].values[3] += m_config.modules[1].m_alpha * (scale(value) - m_curState.modules[1].values[3]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_1_4, &value));
-  m_curState.modules[1].values[4] = scale(value);
+  m_curState.modules[1].values[4] += m_config.modules[1].m_alpha * (scale(value) - m_curState.modules[1].values[4]);
   
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_0, &value));
-  m_curState.modules[2].values[0] = scale(value);
+  m_curState.modules[2].values[0] += m_config.modules[2].m_alpha * (scale(value) - m_curState.modules[2].values[0]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_1, &value));
-  m_curState.modules[2].values[1] = scale(value);
+  m_curState.modules[2].values[1] += m_config.modules[2].m_alpha * (scale(value) - m_curState.modules[2].values[1]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_2, &value));
-  m_curState.modules[2].values[2] = scale(value);
+  m_curState.modules[2].values[2] += m_config.modules[2].m_alpha * (scale(value) - m_curState.modules[2].values[2]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_3, &value));
-  m_curState.modules[2].values[3] = scale(value);
+  m_curState.modules[2].values[3] += m_config.modules[2].m_alpha * (scale(value) - m_curState.modules[2].values[3]);
   ESP_ERROR_CHECK(adc_oneshot_read(adc_2_handle, ADC_2_4, &value));
-  m_curState.modules[2].values[4] = scale(value);
+  m_curState.modules[2].values[4] += m_config.modules[2].m_alpha * (scale(value) - m_curState.modules[2].values[4]);
 
   m_curState.modules[0].moduleSelect = gpio_get_level(GPIO_DEVICE_1_SELECT);
   m_curState.modules[1].moduleSelect = gpio_get_level(GPIO_DEVICE_2_SELECT);
@@ -44,30 +44,6 @@ void MidiManager::updateStates(bool initial)
   {
     m_lastState = m_curState;
   }
-
-  printf("------------------------\n");
-  printf("Select:\n");
-  printf("    %d\n", m_curState.modules[0].moduleSelect);
-  printf("    %d\n", m_curState.modules[1].moduleSelect);
-  printf("    %d\n", m_curState.modules[2].moduleSelect);
-  printf("Device: %d:\n", 1);
-  printf("    %d\n", m_curState.modules[0].values[0]);
-  printf("    %d\n", m_curState.modules[0].values[1]);
-  printf("    %d\n", m_curState.modules[0].values[2]);
-  printf("    %d\n", m_curState.modules[0].values[3]);
-  printf("    %d\n", m_curState.modules[0].values[4]);
-  printf("Device: %d:\n", 2);
-  printf("    %d\n", m_curState.modules[1].values[0]);
-  printf("    %d\n", m_curState.modules[1].values[1]);
-  printf("    %d\n", m_curState.modules[1].values[2]);
-  printf("    %d\n", m_curState.modules[1].values[3]);
-  printf("    %d\n", m_curState.modules[1].values[4]);
-  printf("Device: %d:\n", 3);
-  printf("    %d\n", m_curState.modules[2].values[0]);
-  printf("    %d\n", m_curState.modules[2].values[1]);
-  printf("    %d\n", m_curState.modules[2].values[2]);
-  printf("    %d\n", m_curState.modules[2].values[3]);
-  printf("    %d\n", m_curState.modules[2].values[4]);
 }
 
 void MidiManager::init(Config config)
@@ -148,52 +124,57 @@ void MidiManager::init(Config config)
     .intr_type = GPIO_INTR_DISABLE,
   };
   ESP_ERROR_CHECK(gpio_config(&device_3_select_conf));
-
-  gpio_config_t layer_select_conf =
-  {
-    .pin_bit_mask = 1ULL << GPIO_LAYER_SELECT,
-    .mode = GPIO_MODE_INPUT,
-    .pull_up_en = GPIO_PULLUP_DISABLE,
-    .pull_down_en = GPIO_PULLDOWN_ENABLE,
-    .intr_type = GPIO_INTR_DISABLE,
-  };
-  ESP_ERROR_CHECK(gpio_config(&layer_select_conf));
 }
 
 void MidiManager::handleUpdates()
 {
-  // uint8_t NOTE_OFF = 0x80;
-  // uint8_t NOTE_ON = 0x90;
-  // uint8_t CONTROL_CHANGE = 0xB0;
-  // uint8_t channel = 0x0;
-  // uint8_t keyVel = 0x7F;
-
-  // uint8_t EFFECT_1 = 0x0C;
-  // uint8_t EFFECT_2 = 0x0D;
-
   if (tud_midi_mounted())
   {
     for (int i = 0; i < 3; ++i)
     {
       for (int j = 0; j < 5; ++j)
       {
-        if (m_lastState.modules[i].values[j] != m_curState.modules[i].values[j])
+        m_curState.modules[i].stale[j] = m_curState.modules[i].values[j] == m_lastState.modules[i].values[j];
+        
+        // Analog - Action on a value delta, and when change stops
+        // Digital - Action of rising and falling edges 
+        if ((m_config.modules[i].devices[j].m_device_type == FORCE_ANALOG) || (m_curState.modules[i].moduleSelect && m_config.modules[i].devices[j].m_device_type == HARDWARE_DEFAULT))
         {
-          sendMidiMsg(i, j);
+          // Analog
+          m_curState.modules[i].stale[j] = m_curState.modules[i].values[j] == m_lastState.modules[i].values[j];
+
+          if (!m_curState.modules[i].stale[j])
+          {
+            // changing value
+            // printf("Analog Changing\n");
+            sendMidiMsg(i, j, true);
+          }
+
+          if (!m_lastState.modules[i].stale[j] && m_curState.modules[i].stale[j])
+          {
+            // stopped value
+            // printf("Analog Stopped\n");
+            sendMidiMsg(i, j, false);
+          }
+        }
+        else
+        {
+          // Digital
+          bool curState = m_curState.modules[i].values[j] > 63;
+          bool lastState = m_lastState.modules[i].values[j] > 63;
+          m_curState.modules[i].stale[j] = curState == lastState;
+
+          if (!m_curState.modules[i].stale[j])
+          {
+            // Detected an edge
+            // printf("Digital %s\n", m_curState.modules[i].values[j] < 64 ? "Rising" : "Falling");
+            sendMidiMsg(i, j, m_curState.modules[i].values[j] < 64);
+          }
         }
       }
     }
 
     m_lastState = m_curState;
-
-    uint8_t note_on[3] = {0x90, 1, keyVel};
-    tud_midi_stream_write(0, note_on, 3);
-    uint8_t note_off[3] = {0x80, 1, 0};
-    tud_midi_stream_write(0, note_off, 3);
-    uint8_t control_1[3] = {0xB0, 0x0C, 20};
-    tud_midi_stream_write(0, control_1, 3);
-    uint8_t control_2[3] = {0xB0, 0x0D, 40};
-    tud_midi_stream_write(0, control_2, 3);
   }
 }
 
@@ -202,7 +183,107 @@ uint8_t MidiManager::scale(int value)
   return (value * 127) / 4095;
 }
 
-void MidiManager::sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex)
+void MidiManager::sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex, bool changing)
 {
+  bool success = true;
+  uint8_t msg[3] = {0, 0, 0};
+  // Build message based on config
+  if (changing && m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change != 0xFF)
+  {
+    uint8_t msgId = m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change;
+    msg[0] = msgId | m_config.modules[moduleIndex].m_channel;
 
+    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 != 0xFF)
+    {
+      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 == 0xFE)
+      {
+        msg[1] = m_curState.modules[moduleIndex].values[deviceIndex];
+      }
+      else
+      {
+        msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0;
+      }
+    }
+    else
+    {
+      msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_data;
+    }
+
+    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 != 0xFF)
+    {
+      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 == 0xFE)
+      {
+        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
+      }
+      else
+      {
+        msg[2] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1;
+      }
+    }
+    else
+    {
+      if (msgId == 0x80 || msgId == 0x90)
+      {
+        msg[2] = m_config.modules[moduleIndex].m_press_velocity;
+      }
+      else if (msgId == 0xB0 || msgId == 0xC0)
+      {
+        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
+      }
+    }
+  }
+  else if (!changing && m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop != 0xFF)
+  {
+    uint8_t msgId = m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop;
+    msg[0] = msgId | m_config.modules[moduleIndex].m_channel;
+
+    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 != 0xFF)
+    {
+      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 == 0xFE)
+      {
+        msg[1] = m_curState.modules[moduleIndex].values[moduleIndex];
+      }
+      else
+      {
+        msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0;
+      }
+    }
+    else
+    {
+      msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_data;
+    }
+
+    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 != 0xFF)
+    {
+      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 == 0xFE)
+      {
+        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
+      }
+      else
+      {
+        msg[2] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1;
+      }
+    }
+    else
+    {
+      if (msgId == 0x80 || msgId == 0x90)
+      {
+        msg[2] = m_config.modules[moduleIndex].m_press_velocity;
+      }
+      else if (msgId == 0xB0 || msgId == 0xC0)
+      {
+        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
+      }
+    }
+  }
+  else
+  {
+    success = false;
+  }
+
+  if (success)
+  {
+    // printf("Sending: %X %X %X\n", msg[0], msg[1], msg[2]);
+    tud_midi_stream_write(0, msg, 3);
+  }
 }

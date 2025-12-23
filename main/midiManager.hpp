@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include <vector>
+#include <unordered_map>
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
@@ -6,19 +8,9 @@
 #include "tinyusb.h"
 #include "deviceInfo.hpp"
 
-static const char* tinyUsbConfig[5] = 
-{
-  (char[]){0x09, 0x04},         // 0: English (0x0409)
-  "Stephen Denis",              // 1: Manufacturer
-  "MIDI-MOD Device",            // 2: Product
-  "000001",                     // 3: Serial No.
-  "A configurable MIDI device", // 4: MIDI
-};
-
 // --- Pin Mapping ---
 // Common
-#define GPIO_LAYER_SELECT       GPIO_NUM_38     // GPIO38
-#define MAIN_LED                GPIO_NUM_48     // GPIO48
+#define MAIN_LED                GPIO_NUM_38     // GPIO38
 
 // Device 1
 #define ADC_0_0                 ADC_CHANNEL_0   // GPIO1
@@ -100,20 +92,6 @@ static const uint8_t s_midi_hs_cfg_desc[] =
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-// emums/structs
-struct GpioStates
-{
-  __uint16_t m_value;
-};
-
-// Midi Settings
-static uint8_t const cable_num = 0; // MIDI jack associated with USB endpoint
-static uint8_t const channel = 0;   // 0 for channel 1
-static uint8_t const keyVel = 127;  // the key press velocity
-
-// static struct GpioStates prevStates[15];   // The previous gpio states
-// static struct GpioStates curStates[15];    // The current gpio states
-
 class MidiManager
 {
   public:
@@ -121,7 +99,8 @@ class MidiManager
     void init(Config config);
     void handleUpdates();
     uint8_t scale(int value);
-    void sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex);
+    void sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex, bool changing);
+
     Config m_config{};
     State m_lastState{};
     State m_curState{};
