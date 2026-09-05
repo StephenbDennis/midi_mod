@@ -183,107 +183,95 @@ uint8_t MidiManager::scale(int value)
   return (value * 127) / 4095;
 }
 
+// Substitute the configured override for a data byte, if there is one.
+static uint8_t resolveDataByte(uint8_t manual, uint8_t fallback, uint8_t value)
+{
+  if (manual == DATA_UNSET)
+  {
+    return fallback;
+  }
+
+  return (manual == DATA_FROM_DEVICE ? value : manual) & 0x7F;
+}
+
+// What a data byte holds when the config does not override it. Index 0 is the
+// first byte after the status, index 1 the second.
+static uint8_t defaultDataByte(uint16_t status, uint8_t index, const Module &module, const Device &device, uint8_t value)
+{
+  const uint8_t data = device.m_data == DATA_UNSET ? 0 : device.m_data;
+  const uint16_t wide = midiExpand14(value);
+  const uint8_t lsb = wide & 0x7F;
+  const uint8_t msb = (wide >> 7) & 0x7F;
+
+  if (midiIsSystemMessage(status))
+  {
+    // Song position is a 14 bit counter; quarter frame and song select take a
+    // single configured byte.
+    return status == MSG_SONG_POSITION ? (index == 0 ? lsb : msb) : data;
+  }
+
+  switch (status & 0xF0)
+  {
+    case MSG_NOTE_OFF:
+    case MSG_NOTE_ON:
+      // Note number, then velocity.
+      return index == 0 ? data : module.m_press_velocity;
+    case MSG_POLY_AFTERTOUCH:
+    case MSG_CONTROL_CHANGE:
+      // Note / controller number, then the live reading.
+      return index == 0 ? data : value;
+    case MSG_PROGRAM_CHANGE:
+      return data;
+    case MSG_CHANNEL_AFTERTOUCH:
+      return value;
+    case MSG_PITCH_BEND:
+      return index == 0 ? lsb : msb;
+    default:
+      return data;
+  }
+}
+
 void MidiManager::sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex, bool changing)
 {
-  bool success = true;
-  uint8_t msg[3] = {0, 0, 0};
-  // Build message based on config
-  if (changing && m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change != 0xFF)
+  const Module &module = m_config.modules[moduleIndex];
+  const Device &device = module.devices[deviceIndex];
+
+  const uint16_t status = changing ? device.m_msg_on_change : device.m_msg_on_stop;
+  if (!midiIsSupportedStatus(status))
   {
-    uint8_t msgId = m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change;
-    msg[0] = msgId | m_config.modules[moduleIndex].m_channel;
-
-    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 != 0xFF)
-    {
-      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 == 0xFE)
-      {
-        msg[1] = m_curState.modules[moduleIndex].values[deviceIndex];
-      }
-      else
-      {
-        msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0;
-      }
-    }
-    else
-    {
-      msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_data;
-    }
-
-    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 != 0xFF)
-    {
-      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 == 0xFE)
-      {
-        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
-      }
-      else
-      {
-        msg[2] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1;
-      }
-    }
-    else
-    {
-      if (msgId == 0x80 || msgId == 0x90)
-      {
-        msg[2] = m_config.modules[moduleIndex].m_press_velocity;
-      }
-      else if (msgId == 0xB0 || msgId == 0xC0)
-      {
-        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
-      }
-    }
+    // Nothing configured for this action (MSG_UNSET), or a status this device
+    // cannot express.
+    return;
   }
-  else if (!changing && m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop != 0xFF)
+
+  const uint8_t manual_0 = changing ? device.m_manual_data_change_0 : device.m_manual_data_stop_0;
+  const uint8_t manual_1 = changing ? device.m_manual_data_change_1 : device.m_manual_data_stop_1;
+  const uint8_t value = m_curState.modules[moduleIndex].values[deviceIndex];
+
+  uint8_t msg[3] = {0, 0, 0};
+  if (midiIsSystemMessage(status))
   {
-    uint8_t msgId = m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop;
-    msg[0] = msgId | m_config.modules[moduleIndex].m_channel;
-
-    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 != 0xFF)
-    {
-      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 == 0xFE)
-      {
-        msg[1] = m_curState.modules[moduleIndex].values[moduleIndex];
-      }
-      else
-      {
-        msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0;
-      }
-    }
-    else
-    {
-      msg[1] = m_config.modules[moduleIndex].devices[deviceIndex].m_data;
-    }
-
-    if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 != 0xFF)
-    {
-      if (m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 == 0xFE)
-      {
-        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
-      }
-      else
-      {
-        msg[2] = m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1;
-      }
-    }
-    else
-    {
-      if (msgId == 0x80 || msgId == 0x90)
-      {
-        msg[2] = m_config.modules[moduleIndex].m_press_velocity;
-      }
-      else if (msgId == 0xB0 || msgId == 0xC0)
-      {
-        msg[2] = m_curState.modules[moduleIndex].values[deviceIndex];
-      }
-    }
+    // System messages have no channel nibble.
+    msg[0] = static_cast<uint8_t>(status);
   }
   else
   {
-    success = false;
+    const uint8_t channel = device.m_channel == CHANNEL_INHERIT ? module.m_channel : device.m_channel;
+    msg[0] = (static_cast<uint8_t>(status) & 0xF0) | (channel & 0x0F);
   }
 
-  if (success)
+  // Length is fixed by the status byte. Sending three bytes for a two byte
+  // message leaves a stray data byte on the wire.
+  const uint8_t len = 1 + midiDataByteCount(status);
+  if (len > 1)
   {
-    // printf("Sending: %X %X %X\n", msg[0], msg[1], msg[2]);
-    tud_midi_stream_write(0, msg, 3);
+    msg[1] = resolveDataByte(manual_0, defaultDataByte(status, 0, module, device, value), value);
   }
+  if (len > 2)
+  {
+    msg[2] = resolveDataByte(manual_1, defaultDataByte(status, 1, module, device, value), value);
+  }
+
+  // printf("Sending: %X %X %X (%d bytes)\n", msg[0], msg[1], msg[2], len);
+  tud_midi_stream_write(0, msg, len);
 }

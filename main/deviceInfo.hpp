@@ -1,8 +1,6 @@
 #pragma once
 #include <stdlib.h>
-
-// None of these values are greater than 127
-// I'm using 255 as unset and 254 as device value
+#include <stdint.h>
 
 static const char* tinyUsbConfig[5] = 
 {
@@ -12,6 +10,14 @@ static const char* tinyUsbConfig[5] =
   "000001",                     // 3: Serial No.
   "MIDI-Mod Device",            // 4: MIDI/MSC
 };
+
+// Sentinels. Real MIDI data bytes never exceed 0x7F, so the top of the range is
+// free to mean "not configured". Status bytes go up to 0xFF (system reset), so
+// the message fields are widened to 16 bits to keep a sentinel of their own.
+static const uint16_t MSG_UNSET        = 0xFFFF; // no message configured -> send nothing
+static const uint8_t  DATA_UNSET       = 0xFF;   // option absent from config.toml
+static const uint8_t  DATA_FROM_DEVICE = 0xFE;   // substitute the live device value
+static const uint8_t  CHANNEL_INHERIT  = 0xFF;   // device follows its module channel
 
 enum DeviceType
 {
@@ -36,11 +42,102 @@ enum Notes
   B = 11,
 };
 
+// Every MIDI status byte the device can emit. Channel voice messages carry the
+// channel in the low nibble; system messages are channel-less and are sent
+// exactly as written.
+enum MidiMessage : uint16_t
+{
+  // Channel voice
+  MSG_NOTE_OFF            = 0x80,
+  MSG_NOTE_ON             = 0x90,
+  MSG_POLY_AFTERTOUCH     = 0xA0,
+  MSG_CONTROL_CHANGE      = 0xB0,
+  MSG_PROGRAM_CHANGE      = 0xC0,
+  MSG_CHANNEL_AFTERTOUCH  = 0xD0,
+  MSG_PITCH_BEND          = 0xE0,
+  // System common
+  MSG_MTC_QUARTER_FRAME   = 0xF1,
+  MSG_SONG_POSITION       = 0xF2,
+  MSG_SONG_SELECT         = 0xF3,
+  MSG_TUNE_REQUEST        = 0xF6,
+  // System real time
+  MSG_TIMING_CLOCK        = 0xF8,
+  MSG_START               = 0xFA,
+  MSG_CONTINUE            = 0xFB,
+  MSG_STOP                = 0xFC,
+  MSG_ACTIVE_SENSING      = 0xFE,
+  MSG_SYSTEM_RESET        = 0xFF,
+};
+
+// System messages (0xF0-0xFF) have no channel nibble.
+static inline bool midiIsSystemMessage(uint16_t status)
+{
+  return status >= 0xF0 && status <= 0xFF;
+}
+
+// Sysex (0xF0/0xF7) needs a payload this device has no way to describe, and
+// 0xF4/0xF5 are undefined, so they are rejected rather than sent half-formed.
+static inline bool midiIsSupportedStatus(uint16_t status)
+{
+  if (status < 0x80 || status > 0xFF)
+  {
+    return false;
+  }
+
+  switch (status)
+  {
+    case 0xF0:
+    case 0xF4:
+    case 0xF5:
+    case 0xF7:
+      return false;
+    default:
+      return true;
+  }
+}
+
+// How many data bytes follow the status byte. Getting this right matters:
+// program change and channel aftertouch are two byte messages, and the real
+// time messages are a single byte.
+static inline uint8_t midiDataByteCount(uint16_t status)
+{
+  if (midiIsSystemMessage(status))
+  {
+    switch (status)
+    {
+      case MSG_MTC_QUARTER_FRAME:
+      case MSG_SONG_SELECT:
+        return 1;
+      case MSG_SONG_POSITION:
+        return 2;
+      default:
+        return 0;
+    }
+  }
+
+  switch (status & 0xF0)
+  {
+    case MSG_PROGRAM_CHANGE:
+    case MSG_CHANNEL_AFTERTOUCH:
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+// Stretch a 7 bit device reading over the 14 bit range used by pitch bend and
+// song position. 127 * 129 == 16383, so the full range is reachable.
+static inline uint16_t midiExpand14(uint8_t value)
+{
+  return static_cast<uint16_t>(value) * 129u;
+}
+
 struct Device
 {
   DeviceType m_device_type;
-  uint8_t m_msg_on_change;
-  uint8_t m_msg_on_stop;
+  uint16_t m_msg_on_change;
+  uint16_t m_msg_on_stop;
+  uint8_t m_channel;
   uint8_t m_data;
   uint8_t m_manual_data_change_0;
   uint8_t m_manual_data_change_1;
@@ -50,13 +147,14 @@ struct Device
   Device()
   {
     m_device_type = HARDWARE_DEFAULT;
-    m_msg_on_change = 0xFF;
-    m_msg_on_stop = 0xFF;
-    m_data = 0xFF;
-    m_manual_data_change_0 = 0xFF;
-    m_manual_data_change_1 = 0xFF;
-    m_manual_data_stop_0 = 0xFF;
-    m_manual_data_stop_1 = 0xFF;
+    m_msg_on_change = MSG_UNSET;
+    m_msg_on_stop = MSG_UNSET;
+    m_channel = CHANNEL_INHERIT;
+    m_data = DATA_UNSET;
+    m_manual_data_change_0 = DATA_UNSET;
+    m_manual_data_change_1 = DATA_UNSET;
+    m_manual_data_stop_0 = DATA_UNSET;
+    m_manual_data_stop_1 = DATA_UNSET;
   }
 };
 

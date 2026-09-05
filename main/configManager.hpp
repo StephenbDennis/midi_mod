@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <algorithm>
 #include <string>
 #include <sstream>
 #include <errno.h>
@@ -55,6 +56,8 @@ static uint8_t const msc_fs_configuration_desc[] = {
 };
 
 #define BASE_PATH "/data" // base path to mount the partition
+#define CONFIG_PATH    BASE_PATH "/config.toml"
+#define REFERENCE_PATH BASE_PATH "/reference.txt"
 
 #define PROMPT_STR CONFIG_IDF_TARGET
 
@@ -66,11 +69,17 @@ class ConfigManager
     void openDevice();
   private:
     void parseConfig();
+    void applySetting(uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value);
+    void writeReference();
+    void writeDefaultConfig();
+    int sectionIndex(const std::string& name, const std::string& prefix, int count);
     DeviceType parseType(std::string str);
     uint8_t parseNote(std::string str);
     uint8_t parseHex(std::string str);
+    uint8_t parseChannel(std::string str);
+    long parseNumber(const std::string& str, int base, long fallback);
     float parseFloat(std::string str, float defaultValue);
-    uint8_t parseMsg(std::string str);
+    uint16_t parseMsg(std::string str);
     bool compareStrings(std::string str1, std::string str2);
     std::vector<std::string> split(const std::string& s, char delimiter);
     Config m_config{};

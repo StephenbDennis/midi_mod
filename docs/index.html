@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIDI-Mod Configurator</title>
+<meta name="description" content="Build a config.toml for the MIDI-Mod modular USB MIDI controller: every MIDI message, three modules, five inputs each.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">MIDI&#8209;Mod</span>
+    <span class="brand-sub">configurator</span>
+  </div>
+  <div class="topbar-actions">
+    <button type="button" id="theme-toggle" class="btn icon" title="Switch theme" aria-label="Switch theme">◐</button>
+    <a class="btn ghost" href="https://github.com/StephenbDennis/midi_mod">Source</a>
+    <button type="button" id="import-btn" class="btn">Import</button>
+    <input type="file" id="import-file" accept=".toml,.txt,text/plain" hidden>
+    <button type="button" id="copy-btn" class="btn">Copy</button>
+    <button type="button" id="download-btn" class="btn primary">Download config.toml</button>
+  </div>
+</header>
+
+<p class="lede">
+  Hold the config button while plugging the device in and it mounts as a USB drive.
+  Build your layout below, then drop the generated <code>config.toml</code> onto that drive
+  and replug without the button held.
+</p>
+
+<main>
+  <section class="editor" aria-label="Module editor">
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div id="panels"></div>
+  </section>
+
+  <aside class="side">
+    <section class="card">
+      <header class="card-head">
+        <h2>config.toml</h2>
+        <span class="meta" id="toml-meta"></span>
+      </header>
+      <pre class="toml" id="toml-out" tabindex="0"></pre>
+    </section>
+
+    <section class="card">
+      <header class="card-head">
+        <h2>MIDI monitor</h2>
+        <span class="meta" id="monitor-meta">not connected</span>
+      </header>
+      <div class="monitor-controls">
+        <button type="button" id="midi-connect" class="btn small">Connect MIDI</button>
+        <select id="midi-input" class="small" disabled><option>No inputs</option></select>
+        <button type="button" id="midi-clear" class="btn small ghost">Clear</button>
+      </div>
+      <p class="hint" id="monitor-hint">
+        Plug the device in as a MIDI device and connect to watch what it actually sends.
+      </p>
+      <ol class="log" id="midi-log" aria-live="polite"></ol>
+    </section>
+  </aside>
+</main>
+
+<section class="reference" id="reference">
+  <h2>Message reference</h2>
+  <p class="hint">
+    Everything the firmware can emit. <em>input</em> is the live 0&#8209;127 reading of the
+    knob, slider or button; <em>data</em> is the number set on the device above.
+    System messages ignore the channel.
+  </p>
+  <div class="table-wrap">
+    <table id="reference-table">
+      <thead><tr><th>Name</th><th>Config value</th><th>Status</th><th>Bytes</th><th>Data 1</th><th>Data 2</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="hint">
+    Aliases accepted by the firmware: <code>control_change</code>, <code>program_change</code>,
+    <code>channel_pressure</code>, <code>timing_clock</code>. A raw status byte such as
+    <code>0x90</code> works in place of a name.
+  </p>
+</section>
+
+<footer>
+  <span>MIDI&#8209;Mod is a modular USB MIDI controller by Stephen Dennis.</span>
+  <span>Nothing you enter here leaves your browser.</span>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

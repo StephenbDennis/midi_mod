@@ -49,6 +49,69 @@ void ConfigManager::init()
   _mount();
 }
 
+// Shipped as the starter config.toml and repeated at the bottom of
+// reference.txt so the file always shows a working example.
+static const char *EXAMPLE_CONFIG =
+R"CFG([module1]
+channel = 0x0
+press_velocity = 0x7F
+alpha = 0.5
+[module1.device1]
+message_on_change = note_on
+message_on_stop = note_off
+data = C_3
+[module1.device2]
+message_on_change = note_on
+message_on_stop = note_off
+data = D_3
+[module1.device3]
+message_on_change = note_on
+message_on_stop = note_off
+data = E_3
+[module1.device4]
+message_on_change = start
+message_on_stop = stop
+[module1.device5]
+message_on_change = pc
+data = 0x0
+
+[module2]
+channel = 0x0
+alpha = 0.3
+[module2.device1]
+message_on_change = cc
+data = 0x1
+[module2.device2]
+message_on_change = cc
+data = 0x7
+[module2.device3]
+message_on_change = cc
+data = 0xA
+[module2.device4]
+message_on_change = pitch_bend
+[module2.device5]
+message_on_change = channel_aftertouch
+
+[module3]
+channel = 0x1
+alpha = 0.3
+[module3.device1]
+message_on_change = cc
+data = 0x0
+[module3.device2]
+message_on_change = cc
+data = 0x2
+[module3.device3]
+message_on_change = poly_aftertouch
+data = C_3
+[module3.device4]
+message_on_change = cc
+data = 0x4
+[module3.device5]
+message_on_change = cc
+data = 0x5
+)CFG";
+
 Config ConfigManager::getConfig()
 {
   parseConfig();
@@ -57,107 +120,8 @@ Config ConfigManager::getConfig()
 
 void ConfigManager::openDevice()
 {
-  // Generate Reference file
-  FILE *f = fopen("/data/reference.txt", "w");
-  fprintf(f, "--- config.toml Reference Guide ---\n");
-  fprintf(f, "\n");
-  fprintf(f, "\n");
-
-  fprintf(f, "[module(1-3)] options:\n");
-  fprintf(f, "press_velocity : 0x0-0x7F : This is the note_on message press velocity. 			                  : Defaults to 0x7F\n");
-  fprintf(f, "alpha	    	   : 0.01-0.5 : This value changes the responsivity of the input. Higher is faster. : Defaults to 0.3\n");
-  fprintf(f, "channel 	     : 0x0-0xF  : The channel messages are sent on. (Part of the MIDI messages)       : Defaults to 0x0\n");
-  fprintf(f, "[module*.device(1-5)]\n");
-  fprintf(f, "  device_type       : analog,digital		       : If set this will read each device as 0,1 for digital or 1-127 for analog         : Defaults to module type\n");
-  fprintf(f, "  message_on_change : note_off,note_on,cc,pc,0x0-0xF : The message to send when the value changes (analog) or rising (digital)    : Defaults to noop\n");
-  fprintf(f, "  message_on_stop   : note_off,note_on,cc,pc,0x0-0xF : The message to send when the value is stale (analog) or falling (digital)  : Defaults to noop\n");
-  fprintf(f, "  data 	      : notes,0x0-0x7F                 : For messages note_off,note_on,cc,pc this will be the value in the message.       : Defaults to 0x0. Overwritten by Manual Options\n");
-  fprintf(f, "  --- Manual Options ---\n");
-  fprintf(f, "  manual_data_change_0 : 0x0-0x7F,dev  : If set this will set the first data byte on a change action to this value. If dev, the value of the device is used  : Not used if not set \n");
-  fprintf(f, "  manual_data_change_1 : 0x0-0x7F,dev  : If set this will set the second data byte on a change action to this value. If dev, the value of the device is used : Not used if not set\n");
-  fprintf(f, "  manual_data_stop_0   : 0x0-0x7F,dev  : If set this will set the first data byte on a stop action to this value. If dev, the value of the device is used    : Not used if not set\n");
-  fprintf(f, "  manual_data_stop_1   : 0x0-0x7F,dev  : If set this will set the second data byte on a stop action to this value. If dev, the value of the device is used   : Not used if not set\n");
-  fprintf(f, "\n");
-  fprintf(f, "notes:\n");
-  fprintf(f, "  C_(-1-9)\n");
-  fprintf(f, "  C#_(-1-9)\n");
-  fprintf(f, "  D_(-1-9)\n");
-  fprintf(f, "  D#_(-1-9)\n");
-  fprintf(f, "  E_(-1-9)\n");
-  fprintf(f, "  F_(-1-9)\n");
-  fprintf(f, "  F#_(-1-9)\n");
-  fprintf(f, "  G_(-1-9)\n");
-  fprintf(f, "  G#_(-1-8)\n");
-  fprintf(f, "  A_(-1-8)\n");
-  fprintf(f, "  A#_(-1-8)\n");
-  fprintf(f, "  B_(-1-8)\n");
-  fprintf(f, "\n");
-  fprintf(f, "\n");
-  fprintf(f, "--- Example ---\n");
-  fprintf(f, "\n");
-  fprintf(f, "[module1]\n");
-  fprintf(f, "press_velocity = 0x7F\n");
-  fprintf(f, "channel = 0x0\n");
-  fprintf(f, "[module1.device1]\n");
-  fprintf(f, "message_on_change = note_on\n");
-  fprintf(f, "message_on_stop = note_off\n");
-  fprintf(f, "data = C_-1\n");
-  fprintf(f, "[module1.device2]\n");
-  fprintf(f, "message_on_change = note_on\n");
-  fprintf(f, "message_on_stop = note_off\n");
-  fprintf(f, "data = C_0\n");
-  fprintf(f, "[module1.device3]\n");
-  fprintf(f, "message_on_change = note_on\n");
-  fprintf(f, "message_on_stop = note_off\n");
-  fprintf(f, "data = C_1\n");
-  fprintf(f, "[module1.device4]\n");
-  fprintf(f, "message_on_change = note_on\n");
-  fprintf(f, "message_on_stop = note_off\n");
-  fprintf(f, "data = C_2\n");
-  fprintf(f, "[module1.device5]\n");
-  fprintf(f, "message_on_change = note_on\n");
-  fprintf(f, "message_on_stop = note_off\n");
-  fprintf(f, "data = C_3\n");
-  fprintf(f, "\n");
-  fprintf(f, "[module2]\n");
-  fprintf(f, "press_velocity = 0x7F\n");
-  fprintf(f, "channel = 0x0\n");
-  fprintf(f, "[module2.device1]\n");
-  fprintf(f, "message_on_change = cc\n");
-  fprintf(f, "data = 0x0\n");
-  fprintf(f, "[module2.device2]\n");
-  fprintf(f, "message_on_change = cc\n");
-  fprintf(f, "data = 0x1\n");
-  fprintf(f, "[module2.device3]\n");
-  fprintf(f, "message_on_change = cc\n");
-  fprintf(f, "data = 0x2\n");
-  fprintf(f, "[module2.device4]\n");
-  fprintf(f, "message_on_change = cc\n");
-  fprintf(f, "data = 0x3\n");
-  fprintf(f, "[module2.device5]\n");
-  fprintf(f, "message_on_change = cc\n");
-  fprintf(f, "data = 0x4\n");
-  fprintf(f, "\n");
-  fprintf(f, "[module3]\n");
-  fprintf(f, "press_velocity = 0x7F\n");
-  fprintf(f, "channel = 0x0\n");
-  fprintf(f, "[module3.device1]\n");
-  fprintf(f, "message_on_change = pc\n");
-  fprintf(f, "data = 0x0\n");
-  fprintf(f, "[module3.device2]\n");
-  fprintf(f, "message_on_change = pc\n");
-  fprintf(f, "data = 0x1\n");
-  fprintf(f, "[module3.device3]\n");
-  fprintf(f, "message_on_change = pc\n");
-  fprintf(f, "data = 0x2\n");
-  fprintf(f, "[module3.device4]\n");
-  fprintf(f, "message_on_change = pc\n");
-  fprintf(f, "data = 0x3\n");
-  fprintf(f, "[module3.device5]\n");
-  fprintf(f, "message_on_change = pc\n");
-  fprintf(f, "data = 0x4\n");
-
-  fclose(f);
+  writeReference();
+  writeDefaultConfig();
 
   ESP_LOGI("CONFIG", "USB MSC initialization");
   const tinyusb_config_t tusb_cfg = {
@@ -171,127 +135,260 @@ void ConfigManager::openDevice()
   ESP_LOGI("CONFIG", "USB MSC initialization DONE");
 }
 
-void ConfigManager::parseConfig()
+void ConfigManager::writeReference()
 {
-  std::vector<std::string> lines;
-
-  FILE* f = fopen("/data/config.toml", "r");
+  FILE *f = fopen(REFERENCE_PATH, "w");
   if (!f)
   {
-    printf("Failed to open file: %s\n", "/data/config.toml");
+    ESP_LOGE("CONFIG", "Failed to write %s", REFERENCE_PATH);
+    return;
   }
 
-  char buffer[64];
+  fputs(
+R"REF(--- MIDI-Mod config.toml reference ---
+
+Build this file by hand, or point a browser at the configurator:
+  https://stephenbdennis.github.io/midi_mod/
+
+Sections
+  [module1] .. [module3]                   one per slot, in board order
+  [module1.device1] .. [module1.device5]   the five inputs on that module
+
+A line starting with # is a comment. Numbers are hexadecimal, so 0x7F.
+Anything unset falls back to the default listed below.
+
+[module(1-3)] options
+  channel        : 0x0-0xF  : channel every device in the module sends on           : default 0x0
+  press_velocity : 0x0-0x7F : velocity byte for note_on / note_off                  : default 0x7F
+  alpha          : 0.01-0.5 : input responsivity, higher is faster, lower smoother  : default 0.3
+
+[module(1-3).device(1-5)] options
+  device_type          : analog, digital     : how the input is read                : default module type
+  channel              : 0x0-0xF, inherit    : per device channel override          : default inherit
+  message_on_change    : see the table       : sent on change (analog) or rising edge (digital)
+  message_on_stop      : see the table       : sent when the value settles (analog) or falling edge (digital)
+  data                 : note, 0x0-0x7F      : note, controller or program number   : default 0x0
+  manual_data_change_0 : 0x0-0x7F, dev       : override the 1st data byte on change : unset
+  manual_data_change_1 : 0x0-0x7F, dev       : override the 2nd data byte on change : unset
+  manual_data_stop_0   : 0x0-0x7F, dev       : override the 1st data byte on stop   : unset
+  manual_data_stop_1   : 0x0-0x7F, dev       : override the 2nd data byte on stop   : unset
+
+  "dev" substitutes the live 0-127 reading of the input.
+  Digital inputs read 127 at rest and 0 when pressed.
+
+Messages
+  name                status  bytes  data 1             data 2
+  ------------------  ------  -----  -----------------  ----------------
+  noop                  -       0    nothing is sent
+  note_off             0x80     3    note (data)        velocity
+  note_on              0x90     3    note (data)        velocity
+  poly_aftertouch      0xA0     3    note (data)        pressure (input)
+  cc                   0xB0     3    controller (data)  value (input)
+  pc                   0xC0     2    program (data)     -
+  channel_aftertouch   0xD0     2    pressure (input)   -
+  pitch_bend           0xE0     3    bend LSB (input)   bend MSB (input)
+  mtc_quarter_frame    0xF1     2    time code (data)   -
+  song_position        0xF2     3    position LSB       position MSB
+  song_select          0xF3     2    song (data)        -
+  tune_request         0xF6     1    -                  -
+  clock                0xF8     1    -                  -
+  start                0xFA     1    -                  -
+  continue             0xFB     1    -                  -
+  stop                 0xFC     1    -                  -
+  active_sensing       0xFE     1    -                  -
+  system_reset         0xFF     1    -                  -
+
+  Aliases: control_change = cc, program_change = pc,
+           channel_pressure = channel_aftertouch, timing_clock = clock.
+  A raw status byte (0x80-0xFF) works in place of a name.
+  Messages from 0xF1 up are system messages and ignore the channel.
+  pitch_bend and song_position spread the 0-127 reading across their
+  full 14 bit range.
+
+Notes
+  C_(-1..9)  C#_(-1..9)  D_(-1..9)  D#_(-1..9)  E_(-1..9)  F_(-1..9)
+  F#_(-1..9)  G_(-1..9)  G#_(-1..8)  A_(-1..8)  A#_(-1..8)  B_(-1..8)
+
+--- Example ---
+
+)REF", f);
+
+  fputs(EXAMPLE_CONFIG, f);
+  fclose(f);
+}
+
+void ConfigManager::writeDefaultConfig()
+{
+  FILE *f = fopen(CONFIG_PATH, "r");
+  if (f)
+  {
+    // Never clobber a config the user has already written.
+    fclose(f);
+    return;
+  }
+
+  f = fopen(CONFIG_PATH, "w");
+  if (!f)
+  {
+    ESP_LOGE("CONFIG", "Failed to write %s", CONFIG_PATH);
+    return;
+  }
+
+  ESP_LOGI("CONFIG", "No config found, writing the example to %s", CONFIG_PATH);
+  fputs(EXAMPLE_CONFIG, f);
+  fclose(f);
+}
+
+void ConfigManager::parseConfig()
+{
+  FILE* f = fopen(CONFIG_PATH, "r");
+  if (!f)
+  {
+    ESP_LOGW("CONFIG", "Failed to open %s, running on defaults", CONFIG_PATH);
+    return;
+  }
+
+  char buffer[192];
+  uint8_t moduleIndex = 0;
+  uint8_t deviceIndex = 0;
+  bool inDevice = false;
+
   while (fgets(buffer, sizeof(buffer), f))
   {
-    size_t len = strlen(buffer);
-    if (len > 0 && (buffer[len-1] == '\n' || buffer[len-1] == '\r'))
+    std::string line(buffer);
+
+    // Values are unquoted, so whitespace can go. '#' only opens a comment at
+    // the start of a line, which keeps note names such as C#_4 intact.
+    line.erase(std::remove_if(line.begin(), line.end(),
+                              [](unsigned char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }),
+               line.end());
+
+    if (line.empty() || line[0] == '#')
     {
-      buffer[len-1] = '\0';
-      if (len > 1 && buffer[len-2] == '\r') buffer[len-2] = '\0';
+      continue;
     }
 
-    lines.push_back(std::string(buffer));
+    if (line[0] == '[')
+    {
+      const size_t close = line.find(']');
+      const std::string section = line.substr(1, close == std::string::npos ? std::string::npos : close - 1);
+      const std::vector<std::string> parts = split(section, '.');
+
+      const int module = sectionIndex(parts[0], "module", 3);
+      if (module >= 0)
+      {
+        moduleIndex = static_cast<uint8_t>(module);
+        deviceIndex = 0;
+        inDevice = false;
+      }
+
+      if (parts.size() > 1)
+      {
+        const int device = sectionIndex(parts[1], "device", 5);
+        if (device >= 0)
+        {
+          deviceIndex = static_cast<uint8_t>(device);
+          inDevice = true;
+        }
+      }
+
+      continue;
+    }
+
+    // key = value. Split on the first '=' only; alpha values carry a '.' and
+    // note names carry a '#', so neither can be used as a separator.
+    const size_t equals = line.find('=');
+    if (equals == std::string::npos)
+    {
+      continue;
+    }
+
+    applySetting(moduleIndex, deviceIndex, inDevice, line.substr(0, equals), line.substr(equals + 1));
   }
 
   fclose(f);
+}
 
-  uint8_t moduleIndex = 0;
-  uint8_t deviceIndex = 0;
-  for (uint16_t i = 0; i < lines.size(); ++i)
+void ConfigManager::applySetting(uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value)
+{
+  if (value.empty())
   {
-    // cleanup string
-    lines[i].erase(std::remove(lines[i].begin(), lines[i].end(), ' '), lines[i].end());
-    lines[i].erase(std::remove(lines[i].begin(), lines[i].end(), '\t'), lines[i].end());
-    std::vector<std::string> strs = split(lines[i], '.');
-    
-    if (compareStrings(lines[i], "[module1]"))
+    return;
+  }
+
+  Module &module = m_config.modules[moduleIndex];
+  Device &device = module.devices[deviceIndex];
+
+  // channel exists at both levels, so it follows the section we are in.
+  if (compareStrings(key, "channel"))
+  {
+    if (inDevice)
     {
-      moduleIndex = 0;
-    }
-    else if (compareStrings(lines[i], "[module2]"))
-    {
-      moduleIndex = 1;
-    }
-    else if (compareStrings(lines[i], "[module3]"))
-    {
-      moduleIndex = 2;
-    }
-    else if (strs.size() > 1)
-    {
-      if (compareStrings(strs[1], "device1]"))
-      {
-        deviceIndex = 0;
-      }
-      if (compareStrings(strs[1], "device2]"))
-      {
-        deviceIndex = 1;
-      }
-      if (compareStrings(strs[1], "device3]"))
-      {
-        deviceIndex = 2;
-      }
-      if (compareStrings(strs[1], "device4]"))
-      {
-        deviceIndex = 3;
-      }
-      if (compareStrings(strs[1], "device5]"))
-      {
-        deviceIndex = 4;
-      }
+      device.m_channel = parseChannel(value);
     }
     else
     {
-      std::vector<std::string> pairs = split(lines[i], '=');
-      if (pairs.size() > 1)
-      {
-        if (compareStrings(pairs[0], "press_velocity"))
-        {
-          m_config.modules[moduleIndex].m_press_velocity = parseHex(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "channel"))
-        {
-          m_config.modules[moduleIndex].m_channel = parseHex(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "alpha"))
-        {
-          m_config.modules[moduleIndex].m_alpha = parseFloat(pairs[1], 0.3);
-        }
-        if (compareStrings(pairs[0], "device_type"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_device_type = parseType(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "message_on_change"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_change = parseMsg(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "message_on_stop"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_msg_on_stop = parseMsg(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "data"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_data = parseNote(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "manual_data_change_0"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_0 = parseHex(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "manual_data_change_1"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_change_1 = parseHex(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "manual_data_stop_0"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_0 = parseHex(pairs[1]);
-        }
-        if (compareStrings(pairs[0], "manual_data_stop_1"))
-        {
-          m_config.modules[moduleIndex].devices[deviceIndex].m_manual_data_stop_1 = parseHex(pairs[1]);
-        }
-      }
+      module.m_channel = parseChannel(value) & 0x0F;
     }
   }
+  else if (compareStrings(key, "press_velocity"))
+  {
+    module.m_press_velocity = parseHex(value) & 0x7F;
+  }
+  else if (compareStrings(key, "alpha"))
+  {
+    module.m_alpha = parseFloat(value, 0.3);
+  }
+  else if (compareStrings(key, "device_type"))
+  {
+    device.m_device_type = parseType(value);
+  }
+  else if (compareStrings(key, "message_on_change"))
+  {
+    device.m_msg_on_change = parseMsg(value);
+  }
+  else if (compareStrings(key, "message_on_stop"))
+  {
+    device.m_msg_on_stop = parseMsg(value);
+  }
+  else if (compareStrings(key, "data"))
+  {
+    device.m_data = parseNote(value);
+  }
+  else if (compareStrings(key, "manual_data_change_0"))
+  {
+    device.m_manual_data_change_0 = parseHex(value);
+  }
+  else if (compareStrings(key, "manual_data_change_1"))
+  {
+    device.m_manual_data_change_1 = parseHex(value);
+  }
+  else if (compareStrings(key, "manual_data_stop_0"))
+  {
+    device.m_manual_data_stop_0 = parseHex(value);
+  }
+  else if (compareStrings(key, "manual_data_stop_1"))
+  {
+    device.m_manual_data_stop_1 = parseHex(value);
+  }
+  else
+  {
+    ESP_LOGW("CONFIG", "Ignoring unknown option '%s'", key.c_str());
+  }
+}
+
+// "module2" -> 1, for prefixes numbered 1..count. -1 when it does not match.
+int ConfigManager::sectionIndex(const std::string& name, const std::string& prefix, int count)
+{
+  for (int i = 1; i <= count; ++i)
+  {
+    if (compareStrings(name, prefix + std::to_string(i)))
+    {
+      return i - 1;
+    }
+  }
+
+  return -1;
 }
 
 DeviceType ConfigManager::parseType(std::string str)
@@ -370,7 +467,10 @@ uint8_t ConfigManager::parseNote(std::string str)
       note = static_cast<uint8_t>(B);
     }
 
-    ret = (12 * (std::stoi(parts[1]) + 1)) + note;
+    // Octaves run -1..9, so C_-1 is note 0 and G_9 is note 127.
+    const long octave = parseNumber(parts[1], 10, 0);
+    const long value = (12 * (octave + 1)) + note;
+    ret = value < 0 ? 0 : (value > 127 ? 127 : static_cast<uint8_t>(value));
   }
   else
   {
@@ -382,41 +482,122 @@ uint8_t ConfigManager::parseNote(std::string str)
 
 uint8_t ConfigManager::parseHex(std::string str)
 {
-  return compareStrings(str, "dev") ? 254 : static_cast<uint8_t>(std::stoi(str, nullptr, 16));
+  if (compareStrings(str, "dev"))
+  {
+    return DATA_FROM_DEVICE;
+  }
+
+  const long value = parseNumber(str, 16, -1);
+  if (value < 0 || value > 0xFF)
+  {
+    ESP_LOGW("CONFIG", "Ignoring out of range value '%s'", str.c_str());
+    return DATA_UNSET;
+  }
+
+  return static_cast<uint8_t>(value);
+}
+
+uint8_t ConfigManager::parseChannel(std::string str)
+{
+  if (compareStrings(str, "inherit") || compareStrings(str, "module"))
+  {
+    return CHANNEL_INHERIT;
+  }
+
+  const long value = parseNumber(str, 16, -1);
+  if (value < 0 || value > 0xF)
+  {
+    ESP_LOGW("CONFIG", "Ignoring out of range channel '%s'", str.c_str());
+    return CHANNEL_INHERIT;
+  }
+
+  return static_cast<uint8_t>(value);
+}
+
+// strtol rather than stoi: exceptions are off in the default IDF build, so a
+// typo in the config would otherwise abort the boot.
+long ConfigManager::parseNumber(const std::string& str, int base, long fallback)
+{
+  if (str.empty())
+  {
+    return fallback;
+  }
+
+  char *end = nullptr;
+  errno = 0;
+  const long value = strtol(str.c_str(), &end, base);
+
+  // Anything left over means the value was not a clean number.
+  if (end == str.c_str() || *end != '\0' || errno == ERANGE)
+  {
+    return fallback;
+  }
+
+  return value;
 }
 
 float ConfigManager::parseFloat(std::string str, float defaultValue)
 {
-  float ret = std::stof(str);
-  
+  char *end = nullptr;
+  const float ret = strtof(str.c_str(), &end);
+
+  if (end == str.c_str() || *end != '\0')
+  {
+    return defaultValue;
+  }
+
   return ret;
 }
 
-uint8_t ConfigManager::parseMsg(std::string str)
+uint16_t ConfigManager::parseMsg(std::string str)
 {
-  uint8_t ret = 0;
-  if (compareStrings(str, "note_off"))
+  static const struct
   {
-    ret = 0x80;
-  }
-  else if(compareStrings(str, "note_on"))
+    const char *name;
+    uint16_t status;
+  } messages[] =
   {
-    ret = 0x90;
-  }
-  else if (compareStrings(str, "cc"))
+    {"noop",               MSG_UNSET},
+    {"note_off",           MSG_NOTE_OFF},
+    {"note_on",            MSG_NOTE_ON},
+    {"poly_aftertouch",    MSG_POLY_AFTERTOUCH},
+    {"cc",                 MSG_CONTROL_CHANGE},
+    {"control_change",     MSG_CONTROL_CHANGE},
+    {"pc",                 MSG_PROGRAM_CHANGE},
+    {"program_change",     MSG_PROGRAM_CHANGE},
+    {"channel_aftertouch", MSG_CHANNEL_AFTERTOUCH},
+    {"channel_pressure",   MSG_CHANNEL_AFTERTOUCH},
+    {"pitch_bend",         MSG_PITCH_BEND},
+    {"mtc_quarter_frame",  MSG_MTC_QUARTER_FRAME},
+    {"song_position",      MSG_SONG_POSITION},
+    {"song_select",        MSG_SONG_SELECT},
+    {"tune_request",       MSG_TUNE_REQUEST},
+    {"clock",              MSG_TIMING_CLOCK},
+    {"timing_clock",       MSG_TIMING_CLOCK},
+    {"start",              MSG_START},
+    {"continue",           MSG_CONTINUE},
+    {"stop",               MSG_STOP},
+    {"active_sensing",     MSG_ACTIVE_SENSING},
+    {"system_reset",       MSG_SYSTEM_RESET},
+  };
+
+  for (const auto &message : messages)
   {
-    ret = 0xB0;
-  }
-  else if(compareStrings(str, "pc"))
-  {
-    ret = 0xC0;
-  }
-  else
-  {
-    ret = parseHex(str);
+    if (compareStrings(str, message.name))
+    {
+      return message.status;
+    }
   }
 
-  return ret;
+  // Fall back to a raw status byte, e.g. 0x90.
+  const long raw = parseNumber(str, 16, -1);
+  if (raw < 0 || !midiIsSupportedStatus(static_cast<uint16_t>(raw)))
+  {
+    ESP_LOGW("CONFIG", "Unknown message '%s', nothing will be sent", str.c_str());
+    return MSG_UNSET;
+  }
+
+  return static_cast<uint16_t>(raw);
 }
 
 bool ConfigManager::compareStrings(std::string str1, std::string str2)
