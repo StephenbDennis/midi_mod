@@ -846,8 +846,10 @@ const CMD_READ = 0x01;
 const CMD_WRITE = 0x02;
 const CMD_COMMIT = 0x03;
 
+const CMD_CHUNK = 0x06;
+
 const EVT_READ_BEGIN = 0x81;
-const EVT_READ_END = 0x82;
+const EVT_READ_DONE = 0x82;
 const EVT_WRITE_READY = 0x83;
 const EVT_WRITE_OK = 0x84;
 const EVT_ERR = 0x85;
@@ -860,6 +862,7 @@ const BLE_ERRORS = {
   0x04: 'the device could not write the file',
   0x05: 'the transfer length did not match',
   0x06: 'the device did not understand the command',
+  0x07: 'the device rejected the chunk offset',
 };
 
 /* CRC-16/CCITT-FALSE, the same four lines as configCrc16 in the firmware. */
@@ -896,10 +899,9 @@ let bleBusy = false;
  * reply to whoever asked for it. */
 let blePending = null;
 
-/* A read spans two control events with the data chunks in between, so the
- * session is set up before the command goes out and torn down by whichever
- * event ends it. */
-let bleRead = null;
+/* A chunk request is answered either by a DATA notification carrying that
+ * offset, or by EVT_READ_DONE on CONTROL, so both handlers can resolve it. */
+let bleChunk = null;
 
 function setBleState(text, message, tone) {
   bleMeta.textContent = text;
@@ -930,7 +932,7 @@ function describeBleIdle() {
   }
 
   if (bleConnected()) {
-    setBleState('connected', 'Connected to ' + (bleDevice.name || 'the device') + '. Send writes config.toml and applies it straight away.');
+    setBleState('connected', 'Connected to ' + (bleDevice.name || 'the device') + ' at ' + bleMtu + ' byte MTU. Send writes config.toml and applies it straight away.');
   } else {
     setBleState('not connected', 'Connect over Bluetooth to read the config that is on the device now, or to send it a new one.');
   }
@@ -971,10 +973,10 @@ function failPending(error) {
     blePending = null;
   }
 
-  if (bleRead) {
-    clearTimeout(bleRead.timer);
-    bleRead.reject(error);
-    bleRead = null;
+  if (bleChunk) {
+    clearTimeout(bleChunk.timer);
+    bleChunk.reject(error);
+    bleChunk = null;
   }
 }
 
@@ -988,28 +990,11 @@ function onControlNotify(event) {
     return;
   }
 
-  if (code === EVT_READ_BEGIN && bleRead) {
-    bleRead.expected = view.getUint16(1, true);
-    return;
-  }
-
-  if (code === EVT_READ_END && bleRead) {
-    const session = bleRead;
-    bleRead = null;
-    clearTimeout(session.timer);
-
-    const bytes = new Uint8Array(session.received);
-    if (session.expected >= 0 && bytes.length !== session.expected) {
-      session.reject(new Error('the device sent ' + bytes.length + ' bytes but announced ' + session.expected));
-      return;
-    }
-
-    if (crc16(bytes) !== view.getUint16(1, true)) {
-      session.reject(new Error('the config arrived corrupted'));
-      return;
-    }
-
-    session.resolve(new TextDecoder().decode(bytes));
+  if (code === EVT_READ_DONE && bleChunk) {
+    const waiter = bleChunk;
+    bleChunk = null;
+    clearTimeout(waiter.timer);
+    waiter.resolve(null);
     return;
   }
 
@@ -1022,12 +1007,23 @@ function onControlNotify(event) {
 }
 
 function onDataNotify(event) {
-  if (!bleRead) return;
+  if (!bleChunk) return;
 
   const view = event.target.value;
-  for (let i = 0; i < view.byteLength; i += 1) {
-    bleRead.received.push(view.getUint8(i));
+  if (view.byteLength < 2) return;
+
+  // A retry can be answered twice; the echoed offset says which one this is.
+  if (view.getUint16(0, true) !== bleChunk.offset) return;
+
+  const payload = new Uint8Array(view.byteLength - 2);
+  for (let i = 0; i < payload.length; i += 1) {
+    payload[i] = view.getUint8(i + 2);
   }
+
+  const waiter = bleChunk;
+  bleChunk = null;
+  clearTimeout(waiter.timer);
+  waiter.resolve(payload);
 }
 
 function onBleDisconnected() {
@@ -1064,22 +1060,71 @@ async function bleConnect() {
   bleMax = hello.getUint16(4, true);
 }
 
-function readFromDevice() {
-  return new Promise((resolve, reject) => {
-    const session = { received: [], expected: -1, resolve, reject };
-    session.timer = setTimeout(() => {
-      if (bleRead === session) bleRead = null;
-      reject(new Error('the device did not finish sending in time'));
-    }, 15000);
+/* Chunks are pulled one round trip at a time. A notification is fire and
+ * forget -- the device is told it succeeded the moment the packet is queued,
+ * and NimBLE silently truncates anything over the MTU -- so a device that
+ * streams cannot tell that nothing arrived. Asking for the next offset is the
+ * acknowledgement, and the offset echoed in each chunk makes a short or
+ * dropped one recoverable rather than silent corruption. */
+async function readFromDevice() {
+  const begin = await request([EVT_READ_BEGIN], () => sendCommand(CMD_READ));
+  const expected = begin.getUint16(1, true);
+  const wantCrc = begin.getUint16(3, true);
 
-    bleRead = session;
+  const bytes = new Uint8Array(expected);
+  let have = 0;
 
-    Promise.resolve().then(() => sendCommand(CMD_READ)).catch((err) => {
-      clearTimeout(session.timer);
-      if (bleRead === session) bleRead = null;
-      reject(err);
-    });
-  });
+  while (have < expected) {
+    const chunk = await requestChunk(have);
+
+    if (chunk === null || chunk.length === 0) {
+      throw new Error('the device stopped early at ' + have + ' of ' + expected + ' bytes');
+    }
+
+    if (have + chunk.length > expected) {
+      throw new Error('the device sent more than the ' + expected + ' bytes it announced');
+    }
+
+    bytes.set(chunk, have);
+    have += chunk.length;
+  }
+
+  if (crc16(bytes) !== wantCrc) {
+    throw new Error('the config arrived corrupted');
+  }
+
+  return new TextDecoder().decode(bytes);
+}
+
+/* Resolves to the payload at `offset`, or null when the device says that
+ * offset is the end of the file. A dropped notification only times out this
+ * one chunk, so it is retried instead of failing the whole transfer. */
+async function requestChunk(offset) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const waiter = { offset, resolve, reject };
+        waiter.timer = setTimeout(() => {
+          if (bleChunk === waiter) bleChunk = null;
+          reject(new Error('no chunk at offset ' + offset));
+        }, 4000);
+
+        bleChunk = waiter;
+
+        Promise.resolve().then(() => sendCommand(CMD_CHUNK, u16(offset))).catch((err) => {
+          clearTimeout(waiter.timer);
+          if (bleChunk === waiter) bleChunk = null;
+          reject(err);
+        });
+      });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError;
 }
 
 async function writeToDevice(text) {

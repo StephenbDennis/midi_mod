@@ -50,6 +50,10 @@ static std::string s_staging;
 static uint16_t s_expectedLength = 0;
 static bool s_writeOpen = false;
 
+// The file is read once at CMD_READ and served from here, so the bytes cannot
+// change underneath a transfer that spans many round trips.
+static std::string s_readSnapshot;
+
 // Work that must not run on the NimBLE host task: streaming the config out
 // takes many notifications, and committing it touches the filesystem.
 enum WorkOp : uint8_t
@@ -57,6 +61,7 @@ enum WorkOp : uint8_t
   WORK_READ = 1,
   WORK_COMMIT = 2,
   WORK_REBOOT = 3,
+  WORK_CHUNK = 4,
 };
 
 struct WorkItem
@@ -141,32 +146,61 @@ static void sendU16Event(uint8_t event, uint16_t value)
 
 /* -------------------------------------------------------------- worker task */
 
-static void streamConfig()
+static void beginRead()
 {
-  const std::string text = s_configManager->readConfigText();
-  const uint16_t length = static_cast<uint16_t>(text.size());
-  const uint16_t crc = configCrc16(reinterpret_cast<const uint8_t *>(text.data()), length);
+  s_readSnapshot = s_configManager->readConfigText();
 
-  sendU16Event(EVT_READ_BEGIN, length);
+  const uint16_t length = static_cast<uint16_t>(s_readSnapshot.size());
+  const uint16_t crc = configCrc16(reinterpret_cast<const uint8_t *>(s_readSnapshot.data()), length);
 
-  // Three bytes of every packet go to the ATT notification header.
-  uint16_t chunk = ble_att_mtu(s_connHandle);
-  chunk = chunk > 3 ? static_cast<uint16_t>(chunk - 3) : 20;
-
-  for (uint16_t offset = 0; offset < length; offset += chunk)
+  const uint8_t payload[4] =
   {
-    const uint16_t remaining = static_cast<uint16_t>(length - offset);
-    const uint16_t size = remaining < chunk ? remaining : chunk;
+    static_cast<uint8_t>(length & 0xFF), static_cast<uint8_t>(length >> 8),
+    static_cast<uint8_t>(crc & 0xFF),    static_cast<uint8_t>(crc >> 8),
+  };
 
-    if (!notifyBytes(s_dataHandle, reinterpret_cast<const uint8_t *>(text.data()) + offset, size))
-    {
-      ESP_LOGW(TAG, "read aborted at offset %u", offset);
-      return;
-    }
+  sendEvent(EVT_READ_BEGIN, payload, sizeof(payload));
+  ESP_LOGI(TAG, "read of %u bytes ready, mtu=%u", length, ble_att_mtu(s_connHandle));
+}
+
+static void sendChunk(uint16_t offset)
+{
+  if (s_readSnapshot.empty() && offset != 0)
+  {
+    sendError(ERR_BAD_OFFSET);
+    return;
   }
 
-  sendU16Event(EVT_READ_END, crc);
-  ESP_LOGI(TAG, "sent %u bytes of config", length);
+  const uint16_t length = static_cast<uint16_t>(s_readSnapshot.size());
+
+  if (offset > length)
+  {
+    sendError(ERR_BAD_OFFSET);
+    return;
+  }
+
+  if (offset == length)
+  {
+    sendEvent(EVT_READ_DONE, nullptr, 0);
+    s_readSnapshot.clear();
+    s_readSnapshot.shrink_to_fit();
+    return;
+  }
+
+  // Three bytes go to the ATT notification header and two to the offset. Stay
+  // under the MTU: NimBLE truncates anything longer and still reports success.
+  uint16_t room = ble_att_mtu(s_connHandle);
+  room = room > 5 ? static_cast<uint16_t>(room - 5) : 18;
+
+  const uint16_t remaining = static_cast<uint16_t>(length - offset);
+  const uint16_t size = remaining < room ? remaining : room;
+
+  uint8_t frame[520];
+  frame[0] = static_cast<uint8_t>(offset & 0xFF);
+  frame[1] = static_cast<uint8_t>(offset >> 8);
+  memcpy(&frame[2], s_readSnapshot.data() + offset, size);
+
+  notifyBytes(s_dataHandle, frame, static_cast<uint16_t>(size + 2));
 }
 
 static void commitConfig(uint16_t expectedCrc)
@@ -232,7 +266,10 @@ static void workTask(void *arg)
     switch (item.op)
     {
       case WORK_READ:
-        streamConfig();
+        beginRead();
+        break;
+      case WORK_CHUNK:
+        sendChunk(item.arg);
         break;
       case WORK_COMMIT:
         commitConfig(item.arg);
@@ -290,6 +327,16 @@ static int handleControlWrite(struct os_mbuf *om)
 
     case CMD_READ:
       queueWork(WORK_READ, 0);
+      break;
+
+    case CMD_CHUNK:
+      if (length < 3)
+      {
+        sendError(ERR_BAD_CMD);
+        break;
+      }
+
+      queueWork(WORK_CHUNK, arg);
       break;
 
     case CMD_WRITE:
@@ -449,6 +496,8 @@ static void resetTransfer()
 {
   s_staging.clear();
   s_staging.shrink_to_fit();
+  s_readSnapshot.clear();
+  s_readSnapshot.shrink_to_fit();
   s_expectedLength = 0;
   s_writeOpen = false;
   s_controlSubscribed = false;
