@@ -1,3 +1,6 @@
+# Github Pages
+https://stephenbdennis.github.io/midi_mod/
+
 # Modular USB MIDI Controller (Midi-Mod)
 
 A **USB MIDI device** that supports up to **3 hot-swappable input modules**, configurable as **buttons**, **sliders**, or **potentiometers**.  
