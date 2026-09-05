@@ -1,13 +1,5 @@
 #include "configManager.hpp"
 
-static void _mount(void)
-{
-  ESP_LOGI("CONFIG", "Mount storage...");
-  ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
-
-  return;
-}
-
 static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
 {
   const esp_partition_t *data_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, NULL);
@@ -19,9 +11,26 @@ static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
   return wl_mount(data_partition, wl_handle);
 }
 
-static void storage_mount_changed_cb(tinyusb_msc_event_t *event)
+static void storage_event_cb(tinyusb_msc_storage_handle_t handle, tinyusb_msc_event_t *event, void *arg)
 {
-  ESP_LOGI("CONFIG", "Storage mounted to application: %s", event->mount_changed_data.is_mounted ? "Yes" : "No");
+  switch (event->id)
+  {
+    case TINYUSB_MSC_EVENT_MOUNT_COMPLETE:
+      ESP_LOGI("CONFIG", "Storage mounted to %s",
+               event->mount_point == TINYUSB_MSC_STORAGE_MOUNT_USB ? "the USB host" : "the application");
+      break;
+    case TINYUSB_MSC_EVENT_MOUNT_FAILED:
+      ESP_LOGE("CONFIG", "Storage failed to mount");
+      break;
+    case TINYUSB_MSC_EVENT_FORMAT_REQUIRED:
+      ESP_LOGW("CONFIG", "Storage has no filesystem yet, formatting it");
+      break;
+    case TINYUSB_MSC_EVENT_FORMAT_FAILED:
+      ESP_LOGE("CONFIG", "Storage could not be formatted");
+      break;
+    default:
+      break;
+  }
 }
 
 void ConfigManager::init()
@@ -31,22 +40,26 @@ void ConfigManager::init()
   static wl_handle_t wl_handle = WL_INVALID_HANDLE;
   ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
 
-  const esp_vfs_fat_mount_config_t mount_config = {
-    .format_if_mount_failed = true,
-    .max_files = 5,
-    .allocation_unit_size = 4096,
-  };
+  // Field assignment rather than a designated initializer: the config structs
+  // carry unions and grow new members between component versions.
+  tinyusb_msc_driver_config_t driver_config = {};
+  driver_config.callback = storage_event_cb;
+  driver_config.callback_arg = NULL;
+  ESP_ERROR_CHECK(tinyusb_msc_install_driver(&driver_config));
 
-  const tinyusb_msc_spiflash_config_t config_spi = {
-    .wl_handle = wl_handle,
-    .callback_mount_changed = storage_mount_changed_cb,
-    .callback_premount_changed = NULL,
-    .mount_config = mount_config,
-  };
-  ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
-  ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED, storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
+  // base_path is not const in the driver API, so it needs storage that lives
+  // as long as the mount does.
+  static char basePath[] = BASE_PATH;
 
-  _mount();
+  // The application owns the filesystem until config mode hands it to the host.
+  tinyusb_msc_storage_config_t storage_config = {};
+  storage_config.medium.wl_handle = wl_handle;
+  storage_config.fat_fs.base_path = basePath;
+  storage_config.fat_fs.config.format_if_mount_failed = true;
+  storage_config.fat_fs.config.max_files = 5;
+  storage_config.fat_fs.config.allocation_unit_size = 4096;
+  storage_config.mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP;
+  ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&storage_config, &m_storage));
 }
 
 // Shipped as the starter config.toml and repeated at the bottom of
@@ -123,14 +136,16 @@ void ConfigManager::openDevice()
   writeReference();
   writeDefaultConfig();
 
+  // Hand the filesystem to the host before enumerating, so the drive it sees
+  // already has reference.txt and config.toml on it.
+  ESP_ERROR_CHECK(tinyusb_msc_set_storage_mount_point(m_storage, TINYUSB_MSC_STORAGE_MOUNT_USB));
+
   ESP_LOGI("CONFIG", "USB MSC initialization");
-  const tinyusb_config_t tusb_cfg = {
-      .device_descriptor = &descriptor_config,
-      .string_descriptor = tinyUsbConfig,
-      .string_descriptor_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]),
-      .external_phy = false,
-      .configuration_descriptor = msc_fs_configuration_desc,
-  };
+  tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+  tusb_cfg.descriptor.device = &descriptor_config;
+  tusb_cfg.descriptor.string = tinyUsbConfig;
+  tusb_cfg.descriptor.string_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]);
+  tusb_cfg.descriptor.full_speed_config = msc_fs_configuration_desc;
   ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
   ESP_LOGI("CONFIG", "USB MSC initialization DONE");
 }

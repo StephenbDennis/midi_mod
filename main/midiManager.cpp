@@ -50,20 +50,14 @@ void MidiManager::init(Config config)
 {
   m_config = config;
   // Setup USB
-  tinyusb_config_t const tusb_cfg =
-  {
-    .device_descriptor = NULL, // If device_descriptor is NULL, tinyusb_driver_install() will use Kconfig
-    .string_descriptor = tinyUsbConfig,
-    .string_descriptor_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]),
-    .external_phy = false,
+  tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+  // descriptor.device is left NULL so the stack uses the Kconfig defaults.
+  tusb_cfg.descriptor.string = tinyUsbConfig;
+  tusb_cfg.descriptor.string_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]);
+  tusb_cfg.descriptor.full_speed_config = s_midi_cfg_desc;
 #if (TUD_OPT_HIGH_SPEED)
-    .fs_configuration_descriptor = s_midi_cfg_desc,
-    .hs_configuration_descriptor = s_midi_hs_cfg_desc,
-    .qualifier_descriptor = NULL,
-#else
-    .configuration_descriptor = s_midi_cfg_desc,
+  tusb_cfg.descriptor.high_speed_config = s_midi_hs_cfg_desc;
 #endif // TUD_OPT_HIGH_SPEED
-  };
 
   ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
@@ -73,7 +67,7 @@ void MidiManager::init(Config config)
 
   adc_oneshot_chan_cfg_t chan_config =
   {
-    .atten = ADC_ATTEN_DB_11,  // 3.3V max
+    .atten = ADC_ATTEN_DB_12,  // 3.3V max
     .bitwidth = ADC_BITWIDTH_DEFAULT
   };
 

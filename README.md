@@ -24,10 +24,16 @@ when you eject the drive and replug without the config button held.
 ---
 
 ### Project Build and Flash
+
+Needs **ESP-IDF 5.2 or newer**. Dependencies come from `dependencies.lock`; `idf.py` fetches them
+on the first build.
+
+```
 idf.py set-target esp32s3
 idf.py build
 idf.py -p COM<xxx> flash
 idf.py -p COM<xxx> monitor
+```
 
 ---
 

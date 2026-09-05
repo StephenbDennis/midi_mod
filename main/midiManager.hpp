@@ -6,6 +6,7 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "deviceInfo.hpp"
 
 // --- Pin Mapping ---

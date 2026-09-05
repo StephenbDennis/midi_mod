@@ -11,7 +11,8 @@
 #include "esp_partition.h"
 #include "driver/gpio.h"
 #include "tinyusb.h"
-#include "tusb_msc_storage.h"
+#include "tinyusb_default_config.h"
+#include "tinyusb_msc.h"
 #include "deviceInfo.hpp"
 
 #define EPNUM_MSC       1
@@ -83,4 +84,5 @@ class ConfigManager
     bool compareStrings(std::string str1, std::string str2);
     std::vector<std::string> split(const std::string& s, char delimiter);
     Config m_config{};
+    tinyusb_msc_storage_handle_t m_storage{};
 };
