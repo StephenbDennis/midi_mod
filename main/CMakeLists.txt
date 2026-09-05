@@ -1,4 +1,4 @@
 file(GLOB SRC_FILES "*.cpp")
 idf_component_register(SRCS ${SRC_FILES}
-                    PRIV_REQUIRES esp_adc esp_timer fatfs wear_levelling esp_partition
+                    PRIV_REQUIRES esp_adc esp_timer fatfs wear_levelling esp_partition bt nvs_flash
                     INCLUDE_DIRS ".")

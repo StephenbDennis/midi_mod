@@ -1,4 +1,5 @@
 #include "midiManager.hpp"
+#include "esp_log.h"
 
 void MidiManager::updateStates(bool initial)
 {
@@ -268,4 +269,25 @@ void MidiManager::sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex, bool cha
 
   // printf("Sending: %X %X %X (%d bytes)\n", msg[0], msg[1], msg[2], len);
   tud_midi_stream_write(0, msg, len);
+}
+
+void MidiManager::stageConfig(const Config& config)
+{
+  m_pending = config;
+  m_hasPending.store(true, std::memory_order_release);
+}
+
+void MidiManager::applyPendingConfig()
+{
+  if (!m_hasPending.load(std::memory_order_acquire))
+  {
+    return;
+  }
+
+  m_hasPending.store(false, std::memory_order_relaxed);
+  m_config = m_pending;
+
+  // The ADC, GPIO and USB setup in init() does not depend on the config, so a
+  // sync only has to replace the message map.
+  ESP_LOGI("MIDI", "Applied a config synced over BLE");
 }

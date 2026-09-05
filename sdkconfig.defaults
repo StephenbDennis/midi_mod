@@ -1,16 +1,35 @@
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) Project Minimal Configuration
 #
-CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_IDF_TARGET="esp32s3"
+
+# USB is the MIDI interface only. The mass storage class that used to expose
+# config.toml as a drive is gone; the configurator reaches it over BLE.
+CONFIG_TINYUSB_MIDI_COUNT=1
+CONFIG_TINYUSB_MSC_ENABLED=n
+
+# BLE config service. NimBLE rather than Bluedroid: the ESP32-S3 has no classic
+# Bluetooth, and NimBLE is the smaller host.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
 
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_WL_SECTOR_SIZE_512=y
 CONFIG_WL_SECTOR_MODE_PERF=y
 
 CONFIG_FATFS_LFN_HEAP=y
+
+# The IDF default promotes warnings such as missing-field-initializers to
+# errors, which the partial designated initializers throughout this project
+# trip over. This was set in sdkconfig but never captured here, so a fresh
+# clone used to build with different warning flags than the working tree.
+CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=y
 
 # On chips with USB Serial JTAG, disable secondary console which does not make sense when using console component
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y

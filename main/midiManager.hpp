@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <atomic>
 #include <vector>
 #include <unordered_map>
 #include "driver/gpio.h"
@@ -102,7 +103,17 @@ class MidiManager
     uint8_t scale(int value);
     void sendMidiMsg(uint8_t moduleIndex, uint8_t deviceIndex, bool changing);
 
+    // A config synced over BLE arrives on the NimBLE worker task while the
+    // poll timer is reading m_config. Staging it and picking it up at the top
+    // of a tick keeps the swap off the hot path and away from a torn read.
+    void stageConfig(const Config& config);
+    void applyPendingConfig();
+
     Config m_config{};
     State m_lastState{};
     State m_curState{};
-};
+
+  private:
+    Config m_pending{};
+    std::atomic<bool> m_hasPending{false};
+};

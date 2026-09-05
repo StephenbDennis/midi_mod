@@ -1,65 +1,28 @@
 #include "configManager.hpp"
-
-static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
-{
-  const esp_partition_t *data_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, NULL);
-  if (data_partition == NULL) {
-      ESP_LOGE("CONFIG", "Failed to find FATFS partition. Check the partition table.");
-      return ESP_ERR_NOT_FOUND;
-  }
-
-  return wl_mount(data_partition, wl_handle);
-}
-
-static void storage_event_cb(tinyusb_msc_storage_handle_t handle, tinyusb_msc_event_t *event, void *arg)
-{
-  switch (event->id)
-  {
-    case TINYUSB_MSC_EVENT_MOUNT_COMPLETE:
-      ESP_LOGI("CONFIG", "Storage mounted to %s",
-               event->mount_point == TINYUSB_MSC_STORAGE_MOUNT_USB ? "the USB host" : "the application");
-      break;
-    case TINYUSB_MSC_EVENT_MOUNT_FAILED:
-      ESP_LOGE("CONFIG", "Storage failed to mount");
-      break;
-    case TINYUSB_MSC_EVENT_FORMAT_REQUIRED:
-      ESP_LOGW("CONFIG", "Storage has no filesystem yet, formatting it");
-      break;
-    case TINYUSB_MSC_EVENT_FORMAT_FAILED:
-      ESP_LOGE("CONFIG", "Storage could not be formatted");
-      break;
-    default:
-      break;
-  }
-}
+#include "esp_vfs_fat.h"
+#include "esp_log.h"
 
 void ConfigManager::init()
 {
-  ESP_LOGI("CONFIG", "Initializing storage...");
+  ESP_LOGI("CONFIG", "Mounting storage...");
 
+  // The FAT partition used to be handed to a USB host as a mass storage
+  // device. Nothing outside the firmware touches it now, so it is simply
+  // mounted for the application and read over BLE instead.
   static wl_handle_t wl_handle = WL_INVALID_HANDLE;
-  ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
 
-  // Field assignment rather than a designated initializer: the config structs
-  // carry unions and grow new members between component versions.
-  tinyusb_msc_driver_config_t driver_config = {};
-  driver_config.callback = storage_event_cb;
-  driver_config.callback_arg = NULL;
-  ESP_ERROR_CHECK(tinyusb_msc_install_driver(&driver_config));
+  esp_vfs_fat_mount_config_t mount_config = {};
+  mount_config.format_if_mount_failed = true;
+  mount_config.max_files = 5;
+  mount_config.allocation_unit_size = 4096;
 
-  // base_path is not const in the driver API, so it needs storage that lives
-  // as long as the mount does.
-  static char basePath[] = BASE_PATH;
+  ESP_ERROR_CHECK(esp_vfs_fat_spiflash_mount_rw_wl(BASE_PATH, STORAGE_LABEL, &mount_config, &wl_handle));
 
-  // The application owns the filesystem until config mode hands it to the host.
-  tinyusb_msc_storage_config_t storage_config = {};
-  storage_config.medium.wl_handle = wl_handle;
-  storage_config.fat_fs.base_path = basePath;
-  storage_config.fat_fs.config.format_if_mount_failed = true;
-  storage_config.fat_fs.config.max_files = 5;
-  storage_config.fat_fs.config.allocation_unit_size = 4096;
-  storage_config.mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP;
-  ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&storage_config, &m_storage));
+  // Both are written only when absent: nothing reads them off the device now
+  // that the USB drive is gone, so rewriting them every boot would be wear for
+  // nothing.
+  writeReference();
+  writeDefaultConfig();
 }
 
 // Shipped as the starter config.toml and repeated at the bottom of
@@ -127,32 +90,64 @@ data = 0x5
 
 Config ConfigManager::getConfig()
 {
-  parseConfig();
-  return m_config;
+  return parseText(readConfigText());
 }
 
-void ConfigManager::openDevice()
+std::string ConfigManager::readConfigText()
 {
-  writeReference();
-  writeDefaultConfig();
+  FILE *f = fopen(CONFIG_PATH, "rb");
+  if (!f)
+  {
+    ESP_LOGW("CONFIG", "Failed to open %s, running on defaults", CONFIG_PATH);
+    return std::string();
+  }
 
-  // Hand the filesystem to the host before enumerating, so the drive it sees
-  // already has reference.txt and config.toml on it.
-  ESP_ERROR_CHECK(tinyusb_msc_set_storage_mount_point(m_storage, TINYUSB_MSC_STORAGE_MOUNT_USB));
+  std::string text;
+  char buffer[256];
+  size_t read = 0;
+  while ((read = fread(buffer, 1, sizeof(buffer), f)) > 0)
+  {
+    text.append(buffer, read);
+  }
 
-  ESP_LOGI("CONFIG", "USB MSC initialization");
-  tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-  tusb_cfg.descriptor.device = &descriptor_config;
-  tusb_cfg.descriptor.string = tinyUsbConfig;
-  tusb_cfg.descriptor.string_count = sizeof(tinyUsbConfig) / sizeof(tinyUsbConfig[0]);
-  tusb_cfg.descriptor.full_speed_config = msc_fs_configuration_desc;
-  ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
-  ESP_LOGI("CONFIG", "USB MSC initialization DONE");
+  fclose(f);
+  return text;
+}
+
+bool ConfigManager::writeConfigText(const std::string& text)
+{
+  FILE *f = fopen(CONFIG_PATH, "wb");
+  if (!f)
+  {
+    ESP_LOGE("CONFIG", "Failed to open %s for writing", CONFIG_PATH);
+    return false;
+  }
+
+  const size_t written = text.empty() ? 0 : fwrite(text.data(), 1, text.size(), f);
+
+  // fclose can still fail to flush, so both halves decide the result.
+  const bool closed = fclose(f) == 0;
+  if (written != text.size() || !closed)
+  {
+    ESP_LOGE("CONFIG", "Short write to %s (%u of %u bytes)", CONFIG_PATH,
+             static_cast<unsigned>(written), static_cast<unsigned>(text.size()));
+    return false;
+  }
+
+  ESP_LOGI("CONFIG", "Wrote %u bytes to %s", static_cast<unsigned>(text.size()), CONFIG_PATH);
+  return true;
 }
 
 void ConfigManager::writeReference()
 {
-  FILE *f = fopen(REFERENCE_PATH, "w");
+  FILE *f = fopen(REFERENCE_PATH, "r");
+  if (f)
+  {
+    fclose(f);
+    return;
+  }
+
+  f = fopen(REFERENCE_PATH, "w");
   if (!f)
   {
     ESP_LOGE("CONFIG", "Failed to write %s", REFERENCE_PATH);
@@ -254,23 +249,19 @@ void ConfigManager::writeDefaultConfig()
   fclose(f);
 }
 
-void ConfigManager::parseConfig()
+Config ConfigManager::parseText(const std::string& text)
 {
-  FILE* f = fopen(CONFIG_PATH, "r");
-  if (!f)
-  {
-    ESP_LOGW("CONFIG", "Failed to open %s, running on defaults", CONFIG_PATH);
-    return;
-  }
-
-  char buffer[192];
+  Config config{};
   uint8_t moduleIndex = 0;
   uint8_t deviceIndex = 0;
   bool inDevice = false;
 
-  while (fgets(buffer, sizeof(buffer), f))
+  std::istringstream stream(text);
+  std::string raw;
+
+  while (std::getline(stream, raw))
   {
-    std::string line(buffer);
+    std::string line(raw);
 
     // Values are unquoted, so whitespace can go. '#' only opens a comment at
     // the start of a line, which keeps note names such as C#_4 intact.
@@ -318,22 +309,21 @@ void ConfigManager::parseConfig()
       continue;
     }
 
-    applySetting(moduleIndex, deviceIndex, inDevice, line.substr(0, equals), line.substr(equals + 1));
+    applySetting(config, moduleIndex, deviceIndex, inDevice, line.substr(0, equals), line.substr(equals + 1));
   }
 
-  fclose(f);
+  return config;
 }
 
-void ConfigManager::applySetting(uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value)
+void ConfigManager::applySetting(Config& config, uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value)
 {
   if (value.empty())
   {
     return;
   }
 
-  Module &module = m_config.modules[moduleIndex];
+  Module &module = config.modules[moduleIndex];
   Device &device = module.devices[deviceIndex];
-
   // channel exists at both levels, so it follows the section we are in.
   if (compareStrings(key, "channel"))
   {

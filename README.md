@@ -15,11 +15,14 @@ per module type (Buttons, Sliders, Pots), it imports a config you already have, 
 the device over Web MIDI so you can check what it is actually sending. Everything runs in the
 browser; nothing is uploaded.
 
-**Sync** writes `config.toml` onto the device for you. Bring it up in config mode, press Sync, pick
-the drive once, and every later sync is a single click. It reads the file back to confirm the write
-landed. Sync needs the File System Access API, so it is Chrome, Edge and Opera only; everywhere else
-use Download and copy the file across yourself. Either way the device only picks up the new config
-when you eject the drive and replug without the config button held.
+**Connect** pairs with the device over Bluetooth. From there **Load from device** pulls the config
+that is on it right now, and **Send to device** writes `config.toml` back and applies it
+immediately &mdash; no replug, and the device stays a USB MIDI interface throughout, so you can keep
+playing into a DAW while you edit. Transfers are checksummed in both directions and rejected if they
+do not match.
+
+Bluetooth needs Web Bluetooth, so it is Chrome, Edge and Opera only (on Linux you may have to enable
+it in `chrome://flags`). Everywhere else, Download still gives you the same `config.toml`.
 
 ---
 
@@ -48,7 +51,7 @@ idf.py -p COM<xxx> monitor
 - **Every MIDI message**: notes, aftertouch, control change, program change, pitch bend, and the
   system common and real time messages
 - Configurable with onboard .toml(ish) file
-- MSC for configuration changes
+- BLE config service, so it can be reconfigured while it plays
 
 ---
 
@@ -70,9 +73,15 @@ A maximum of **3 slots** are available.
 ---
 
 ## Configuration
-- Press and Hold the config button on the bottom of the main board when conecting to power and the device will come up as a MSC device. You can save multiple files, but only config.toml will be used to configure the device when it comes up in the MIDI mode (Default). On first boot you may need to format the device.
+- The device advertises over Bluetooth LE as **MIDI-Mod** whenever it is powered. Open the
+  configurator, press Connect, and pick it from the browser's device chooser. There is no config
+  boot mode any more: USB is the MIDI interface full time.
 
-- reference.txt Will be generated every time the device comes up in config mode. It contains information about what is expected in the config files.
+- **Send to device** writes `config.toml` into the device's internal filesystem and applies it on
+  the next poll tick, so a change is audible straight away.
+
+- `reference.txt` is written to the internal filesystem on first boot. It documents the config
+  format, though the same reference is on the configurator page under **Message reference**.
 
 - If no config.toml is present the device writes the example below, so there is always something to edit.
 

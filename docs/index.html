@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MIDI-Mod Configurator</title>
-<meta name="description" content="Build a config.toml for the MIDI-Mod modular USB MIDI controller: every MIDI message, three modules, five inputs each.">
+<meta name="description" content="Build a config.toml for the MIDI-Mod modular USB MIDI controller and send it over Bluetooth: every MIDI message, three modules, five inputs each.">
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
 </head>
@@ -23,14 +23,15 @@
     <input type="file" id="import-file" accept=".toml,.txt,text/plain" hidden>
     <button type="button" id="copy-btn" class="btn">Copy</button>
     <button type="button" id="download-btn" class="btn">Download</button>
-    <button type="button" id="sync-btn" class="btn primary">Sync to device</button>
+    <button type="button" id="ble-send" class="btn primary" disabled>Send to device</button>
   </div>
 </header>
 
 <p class="lede">
-  Hold the config button while plugging the device in and it mounts as a USB drive.
-  Build your layout below, then sync it straight to that drive &mdash; or download
-  <code>config.toml</code> and copy it over yourself &mdash; and replug without the button held.
+  Build your layout below and send it to the device over Bluetooth &mdash; it stays
+  plugged in as a USB MIDI interface the whole time, and the new config takes effect
+  without a replug. You can also pull the current config back off the device, or
+  download <code>config.toml</code> and keep it.
 </p>
 
 <main>
@@ -43,15 +44,16 @@
     <section class="card">
       <header class="card-head">
         <h2>Device</h2>
-        <span class="meta" id="sync-meta">no drive</span>
+        <span class="meta" id="ble-meta">not connected</span>
       </header>
-      <p class="hint" id="sync-hint">
-        Hold the config button while plugging the device in so it mounts as a drive,
-        then sync to write <code>config.toml</code> straight onto it.
+      <p class="hint" id="ble-hint">
+        Connect over Bluetooth to read the config that is on the device now, or to
+        send it a new one.
       </p>
       <div class="monitor-controls">
-        <button type="button" id="sync-choose" class="btn small">Choose drive</button>
-        <button type="button" id="sync-forget" class="btn small ghost" hidden>Forget</button>
+        <button type="button" id="ble-connect" class="btn small">Connect</button>
+        <button type="button" id="ble-load" class="btn small" disabled>Load from device</button>
+        <button type="button" id="ble-disconnect" class="btn small ghost" hidden>Disconnect</button>
       </div>
     </section>
 
@@ -74,7 +76,7 @@
         <button type="button" id="midi-clear" class="btn small ghost">Clear</button>
       </div>
       <p class="hint" id="monitor-hint">
-        Plug the device in as a MIDI device and connect to watch what it actually sends.
+        Plug the device in and connect to watch what it actually sends.
       </p>
       <ol class="log" id="midi-log" aria-live="polite"></ol>
     </section>

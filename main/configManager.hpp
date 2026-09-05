@@ -1,3 +1,4 @@
+#pragma once
 #include <stdlib.h>
 #include <stdio.h>
 #include <algorithm>
@@ -10,69 +11,35 @@
 #include "esp_check.h"
 #include "esp_partition.h"
 #include "driver/gpio.h"
-#include "tinyusb.h"
-#include "tinyusb_default_config.h"
-#include "tinyusb_msc.h"
 #include "deviceInfo.hpp"
-
-#define EPNUM_MSC       1
-#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN)
-
-enum {
-    ITF_NUM_MSC = 0,
-    ITF_NUM_TOTAL
-};
-
-enum {
-    EDPT_CTRL_OUT = 0x00,
-    EDPT_CTRL_IN  = 0x80,
-
-    EDPT_MSC_OUT  = 0x01,
-    EDPT_MSC_IN   = 0x81,
-};
-
-static tusb_desc_device_t descriptor_config = {
-    .bLength = sizeof(descriptor_config),
-    .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = 0x303A, // This is Espressif VID. This needs to be changed according to Users / Customers
-    .idProduct = 0x4002,
-    .bcdDevice = 0x100,
-    .iManufacturer = 0x01,
-    .iProduct = 0x02,
-    .iSerialNumber = 0x03,
-    .bNumConfigurations = 0x01
-};
-
-static uint8_t const msc_fs_configuration_desc[] = {
-    // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-
-    // Interface number, string index, EP Out & EP In address, EP size
-    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 0, EDPT_MSC_OUT, EDPT_MSC_IN, 64),
-};
 
 #define BASE_PATH "/data" // base path to mount the partition
 #define CONFIG_PATH    BASE_PATH "/config.toml"
 #define REFERENCE_PATH BASE_PATH "/reference.txt"
 
-#define PROMPT_STR CONFIG_IDF_TARGET
+// Label of the FAT partition in partitions.csv.
+#define STORAGE_LABEL "storage"
 
 class ConfigManager
 {
   public:
     void init();
     Config getConfig();
-    void openDevice();
+
+    // Raw file access, for the BLE config service. The device stores the
+    // config as the same config.toml text the configurator downloads, so what
+    // goes over the air is exactly what a user would save to disk.
+    std::string readConfigText();
+    bool writeConfigText(const std::string& text);
+
+    // Parse without touching the filesystem, so a config can be validated
+    // before it is committed.
+    Config parseText(const std::string& text);
+
   private:
-    void parseConfig();
-    void applySetting(uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value);
     void writeReference();
     void writeDefaultConfig();
+    void applySetting(Config& config, uint8_t moduleIndex, uint8_t deviceIndex, bool inDevice, const std::string& key, const std::string& value);
     int sectionIndex(const std::string& name, const std::string& prefix, int count);
     DeviceType parseType(std::string str);
     uint8_t parseNote(std::string str);
@@ -83,6 +50,4 @@ class ConfigManager
     uint16_t parseMsg(std::string str);
     bool compareStrings(std::string str1, std::string str2);
     std::vector<std::string> split(const std::string& s, char delimiter);
-    Config m_config{};
-    tinyusb_msc_storage_handle_t m_storage{};
 };

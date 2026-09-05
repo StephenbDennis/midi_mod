@@ -580,8 +580,7 @@ function toToml() {
   const lines = [
     '# MIDI-Mod configuration',
     '# stephenbdennis.github.io/midi_mod',
-    '# Copy onto the MIDI-Mod drive as config.toml,',
-    '# then replug without the config button held.',
+    '# Send to the device over Bluetooth, or keep as config.toml.',
   ];
 
   state.modules.forEach((module, mi) => {
@@ -828,181 +827,353 @@ themeButton.addEventListener('click', () => {
   setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
 });
 
-/* ----------------------------------------------------------- device sync */
+/* ------------------------------------------------------------ device / BLE */
 
-/* The device mounts as a plain USB drive in config mode, so syncing is a
- * matter of writing config.toml into it. The File System Access API is the
- * only way a page can do that, and it is Chromium-only, hence the fallback to
- * Download everywhere else. The directory handle is kept in IndexedDB (it
- * cannot be serialised into localStorage) so the next sync is one click. */
+/* The device used to mount as a USB drive in a special config boot mode. It
+ * doesn't any more: USB is the MIDI interface full time, and config.toml moves
+ * over a GATT service instead, so the device can be reconfigured without ever
+ * leaving the DAW.
+ *
+ * Every constant below mirrors main/configProtocol.hpp. Web Bluetooth is
+ * Chromium-only and needs HTTPS, which GitHub Pages provides. */
 
-const DB_NAME = 'midimod';
-const DB_STORE = 'handles';
-const DIR_KEY = 'device-dir';
+const BLE_SERVICE = '6d696469-2d6d-6f64-0001-636f6e666967';
+const BLE_CONTROL = '6d696469-2d6d-6f64-0003-636f6e666967';
+const BLE_DATA    = '6d696469-2d6d-6f64-0004-636f6e666967';
 
-const syncButton = document.getElementById('sync-btn');
-const syncChoose = document.getElementById('sync-choose');
-const syncForget = document.getElementById('sync-forget');
-const syncMeta = document.getElementById('sync-meta');
-const syncHint = document.getElementById('sync-hint');
+const CMD_HELLO = 0x00;
+const CMD_READ = 0x01;
+const CMD_WRITE = 0x02;
+const CMD_COMMIT = 0x03;
 
-const canSync = typeof window.showDirectoryPicker === 'function';
-let deviceDir = null;
+const EVT_READ_BEGIN = 0x81;
+const EVT_READ_END = 0x82;
+const EVT_WRITE_READY = 0x83;
+const EVT_WRITE_OK = 0x84;
+const EVT_ERR = 0x85;
+const EVT_HELLO = 0x86;
 
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+const BLE_ERRORS = {
+  0x01: 'the config is larger than the device will accept',
+  0x02: 'the checksum did not match, so the transfer was corrupted',
+  0x03: 'the device was not expecting config data',
+  0x04: 'the device could not write the file',
+  0x05: 'the transfer length did not match',
+  0x06: 'the device did not understand the command',
+};
+
+/* CRC-16/CCITT-FALSE, the same four lines as configCrc16 in the firmware. */
+function crc16(bytes) {
+  let crc = 0xFFFF;
+
+  for (const byte of bytes) {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+  }
+
+  return crc;
 }
 
-function dbRequest(mode, run) {
-  return openDb().then((db) => new Promise((resolve, reject) => {
-    const request = run(db.transaction(DB_STORE, mode).objectStore(DB_STORE));
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  }));
+const bleSend = document.getElementById('ble-send');
+const bleConnectButton = document.getElementById('ble-connect');
+const bleLoadButton = document.getElementById('ble-load');
+const bleDisconnectButton = document.getElementById('ble-disconnect');
+const bleMeta = document.getElementById('ble-meta');
+const bleHint = document.getElementById('ble-hint');
+
+const canBle = !!(navigator.bluetooth && navigator.bluetooth.requestDevice);
+
+let bleDevice = null;
+let bleControl = null;
+let bleData = null;
+let bleMtu = 23;
+let bleMax = 4096;
+let bleBusy = false;
+
+/* One command is in flight at a time, so a single slot is enough to match a
+ * reply to whoever asked for it. */
+let blePending = null;
+
+/* A read spans two control events with the data chunks in between, so the
+ * session is set up before the command goes out and torn down by whichever
+ * event ends it. */
+let bleRead = null;
+
+function setBleState(text, message, tone) {
+  bleMeta.textContent = text;
+  bleHint.className = 'hint' + (tone ? ' ' + tone : '');
+  bleHint.replaceChildren();
+  bleHint.append(message);
 }
 
-const rememberDir = (handle) => dbRequest('readwrite', (store) => store.put(handle, DIR_KEY));
-const recallDir = () => dbRequest('readonly', (store) => store.get(DIR_KEY));
-const forgetDir = () => dbRequest('readwrite', (store) => store.delete(DIR_KEY));
-
-function setSyncState(text, message, tone) {
-  syncMeta.textContent = text;
-  syncHint.className = 'hint' + (tone ? ' ' + tone : '');
-  syncHint.replaceChildren();
-  syncHint.append(message);
-  syncForget.hidden = !deviceDir;
+function bleConnected() {
+  return !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
 }
 
-function describeIdle() {
-  if (!canSync) {
-    setSyncState('unsupported',
-      'This browser cannot write to a drive directly. Use Download instead, and copy the file over yourself. Chrome, Edge and Opera support it.');
-    syncButton.disabled = true;
-    syncChoose.disabled = true;
+function refreshBleButtons() {
+  const ready = bleConnected() && !bleBusy;
+  bleSend.disabled = !ready;
+  bleLoadButton.disabled = !ready;
+  bleConnectButton.hidden = bleConnected();
+  bleDisconnectButton.hidden = !bleConnected();
+  bleConnectButton.disabled = bleBusy || !canBle;
+}
+
+function describeBleIdle() {
+  if (!canBle) {
+    setBleState('unsupported',
+      'This browser has no Web Bluetooth. Chrome, Edge and Opera do; on Linux you may need to enable it in chrome://flags. You can still download config.toml.',
+      'warn');
     return;
   }
 
-  if (deviceDir) {
-    setSyncState('ready', 'Syncing to ' + deviceDir.name + '. Writes config.toml, replacing whatever is there.');
+  if (bleConnected()) {
+    setBleState('connected', 'Connected to ' + (bleDevice.name || 'the device') + '. Send writes config.toml and applies it straight away.');
   } else {
-    setSyncState('no drive',
-      'Hold the config button while plugging the device in so it mounts as a drive, then sync to write config.toml straight onto it.');
+    setBleState('not connected', 'Connect over Bluetooth to read the config that is on the device now, or to send it a new one.');
   }
 }
 
-// A MIDI-Mod drive has been in config mode at least once, so it carries a
-// reference.txt or a config.toml. Anything else is probably the wrong folder.
-async function looksLikeDevice(dir) {
-  for (const name of ['reference.txt', 'config.toml']) {
-    try {
-      await dir.getFileHandle(name);
-      return true;
-    } catch (err) {
-      /* keep looking */
-    }
-  }
-  return false;
+function u16(value) {
+  return [value & 0xFF, (value >> 8) & 0xFF];
 }
 
-async function ensurePermission(dir) {
-  const options = { mode: 'readwrite' };
-  if ((await dir.queryPermission(options)) === 'granted') return true;
-  return (await dir.requestPermission(options)) === 'granted';
+function sendCommand(command, args = []) {
+  return bleControl.writeValueWithResponse(new Uint8Array([command, ...args]));
 }
 
-async function chooseDirectory() {
-  let dir;
-  try {
-    dir = await window.showDirectoryPicker({ id: 'midimod-drive', mode: 'readwrite' });
-  } catch (err) {
-    return null; // the picker was dismissed
-  }
+/* Install the waiter before the command goes out, so a fast reply cannot land
+ * before anything is listening for it. */
+function request(want, send, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const pending = { want, resolve, reject };
+    pending.timer = setTimeout(() => {
+      if (blePending === pending) blePending = null;
+      reject(new Error('the device did not answer in time'));
+    }, timeout);
 
-  if (!(await looksLikeDevice(dir)) &&
-      !confirm('No reference.txt or config.toml in "' + dir.name + '".\n\n' +
-               'That folder may not be the MIDI-Mod drive. Write config.toml there anyway?')) {
-    return null;
-  }
+    blePending = pending;
 
-  deviceDir = dir;
-  try {
-    await rememberDir(dir);
-  } catch (err) {
-    /* the handle just will not survive a reload */
-  }
-  describeIdle();
-  return dir;
+    Promise.resolve().then(send).catch((err) => {
+      clearTimeout(pending.timer);
+      if (blePending === pending) blePending = null;
+      reject(err);
+    });
+  });
 }
 
-async function syncToDevice() {
-  if (!canSync) return;
+function failPending(error) {
+  if (blePending) {
+    clearTimeout(blePending.timer);
+    blePending.reject(error);
+    blePending = null;
+  }
 
-  // Permission work has to happen before any long await, while the click
-  // still counts as a user gesture.
-  let dir = deviceDir;
-  if (dir) {
-    if (!(await ensurePermission(dir))) {
-      setSyncState('blocked', 'Permission to write to ' + dir.name + ' was declined.', 'warn');
+  if (bleRead) {
+    clearTimeout(bleRead.timer);
+    bleRead.reject(error);
+    bleRead = null;
+  }
+}
+
+function onControlNotify(event) {
+  const view = event.target.value;
+  const code = view.getUint8(0);
+
+  if (code === EVT_ERR) {
+    const raw = view.byteLength > 1 ? view.getUint8(1) : 0;
+    failPending(new Error(BLE_ERRORS[raw] || ('device error 0x' + raw.toString(16))));
+    return;
+  }
+
+  if (code === EVT_READ_BEGIN && bleRead) {
+    bleRead.expected = view.getUint16(1, true);
+    return;
+  }
+
+  if (code === EVT_READ_END && bleRead) {
+    const session = bleRead;
+    bleRead = null;
+    clearTimeout(session.timer);
+
+    const bytes = new Uint8Array(session.received);
+    if (session.expected >= 0 && bytes.length !== session.expected) {
+      session.reject(new Error('the device sent ' + bytes.length + ' bytes but announced ' + session.expected));
       return;
     }
-  } else {
-    dir = await chooseDirectory();
-    if (!dir) return;
+
+    if (crc16(bytes) !== view.getUint16(1, true)) {
+      session.reject(new Error('the config arrived corrupted'));
+      return;
+    }
+
+    session.resolve(new TextDecoder().decode(bytes));
+    return;
   }
 
-  const text = toToml();
-  syncButton.disabled = true;
-
-  try {
-    const file = await dir.getFileHandle('config.toml', { create: true });
-    const writable = await file.createWritable();
-    await writable.write(text);
-    await writable.close();
-
-    // Read it back: a drive that filled up or was pulled mid-write fails here
-    // rather than silently leaving a truncated config behind.
-    const written = await (await file.getFile()).text();
-    if (written !== text) throw new Error('the file on the drive does not match what was sent');
-
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setSyncState('synced ' + time,
-      'Wrote ' + text.length + ' bytes to ' + dir.name + '. Eject the drive, then replug without the config button held.',
-      'ok');
-    toast('Synced to ' + dir.name);
-  } catch (err) {
-    setSyncState('failed', 'Could not write config.toml: ' + (err && err.message ? err.message : err), 'warn');
-    toast('Sync failed');
-  } finally {
-    syncButton.disabled = false;
+  if (blePending && blePending.want.includes(code)) {
+    const pending = blePending;
+    blePending = null;
+    clearTimeout(pending.timer);
+    pending.resolve(view);
   }
 }
 
-syncButton.addEventListener('click', syncToDevice);
-syncChoose.addEventListener('click', () => chooseDirectory());
-syncForget.addEventListener('click', async () => {
-  deviceDir = null;
-  try {
-    await forgetDir();
-  } catch (err) {
-    /* nothing stored */
+function onDataNotify(event) {
+  if (!bleRead) return;
+
+  const view = event.target.value;
+  for (let i = 0; i < view.byteLength; i += 1) {
+    bleRead.received.push(view.getUint8(i));
   }
-  describeIdle();
+}
+
+function onBleDisconnected() {
+  failPending(new Error('the device disconnected'));
+  bleControl = null;
+  bleData = null;
+  bleBusy = false;
+  refreshBleButtons();
+  setBleState('disconnected', 'The device went away. Connect again to carry on.', 'warn');
+}
+
+async function bleConnect() {
+  bleDevice = await navigator.bluetooth.requestDevice({
+    filters: [{ services: [BLE_SERVICE] }],
+    optionalServices: [BLE_SERVICE],
+  });
+
+  bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
+
+  const server = await bleDevice.gatt.connect();
+  const service = await server.getPrimaryService(BLE_SERVICE);
+
+  bleControl = await service.getCharacteristic(BLE_CONTROL);
+  bleData = await service.getCharacteristic(BLE_DATA);
+
+  bleControl.addEventListener('characteristicvaluechanged', onControlNotify);
+  await bleControl.startNotifications();
+  bleData.addEventListener('characteristicvaluechanged', onDataNotify);
+  await bleData.startNotifications();
+
+  // The browser never exposes the negotiated MTU, so the device reports it.
+  const hello = await request([EVT_HELLO], () => sendCommand(CMD_HELLO));
+  bleMtu = hello.getUint16(2, true);
+  bleMax = hello.getUint16(4, true);
+}
+
+function readFromDevice() {
+  return new Promise((resolve, reject) => {
+    const session = { received: [], expected: -1, resolve, reject };
+    session.timer = setTimeout(() => {
+      if (bleRead === session) bleRead = null;
+      reject(new Error('the device did not finish sending in time'));
+    }, 15000);
+
+    bleRead = session;
+
+    Promise.resolve().then(() => sendCommand(CMD_READ)).catch((err) => {
+      clearTimeout(session.timer);
+      if (bleRead === session) bleRead = null;
+      reject(err);
+    });
+  });
+}
+
+async function writeToDevice(text) {
+  const bytes = new TextEncoder().encode(text);
+
+  if (bytes.length > bleMax) {
+    throw new Error('the config is ' + bytes.length + ' bytes, over the device limit of ' + bleMax);
+  }
+
+  await request([EVT_WRITE_READY], () => sendCommand(CMD_WRITE, u16(bytes.length)));
+
+  // Three bytes of the MTU go to the ATT header, and Chrome caps a single
+  // write at 512 bytes regardless.
+  const chunk = Math.min(Math.max(bleMtu - 3, 20), 512);
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    await bleData.writeValueWithResponse(bytes.slice(offset, offset + chunk));
+  }
+
+  await request([EVT_WRITE_OK], () => sendCommand(CMD_COMMIT, u16(crc16(bytes))), 15000);
+}
+
+async function withDevice(label, work) {
+  if (!bleConnected() || bleBusy) return;
+
+  bleBusy = true;
+  refreshBleButtons();
+
+  try {
+    await work();
+  } catch (err) {
+    const reason = err && err.message ? err.message : String(err);
+    setBleState('failed', label + ' failed: ' + reason, 'warn');
+    toast(label + ' failed');
+  } finally {
+    bleBusy = false;
+    refreshBleButtons();
+  }
+}
+
+bleConnectButton.addEventListener('click', async () => {
+  if (!canBle) return;
+
+  bleConnectButton.disabled = true;
+
+  try {
+    await bleConnect();
+    describeBleIdle();
+    toast('Connected to ' + (bleDevice.name || 'the device'));
+  } catch (err) {
+    // Dismissing the chooser is a NotFoundError, not something worth shouting about.
+    if (err && err.name === 'NotFoundError') {
+      describeBleIdle();
+    } else {
+      const reason = err && err.message ? err.message : String(err);
+      setBleState('failed', 'Could not connect: ' + reason, 'warn');
+    }
+  } finally {
+    refreshBleButtons();
+  }
 });
 
-describeIdle();
+bleDisconnectButton.addEventListener('click', () => {
+  if (bleDevice && bleDevice.gatt && bleDevice.gatt.connected) {
+    bleDevice.gatt.disconnect();
+  }
+});
 
-if (canSync) {
-  recallDir().then((dir) => {
-    if (!dir) return;
-    deviceDir = dir;
-    describeIdle();
-  }).catch(() => { /* no stored handle */ });
-}
+bleLoadButton.addEventListener('click', () => withDevice('Load', async () => {
+  const text = await readFromDevice();
+
+  if (!text.trim()) {
+    setBleState('empty', 'The device has no config on it yet. Send one to get started.', 'warn');
+    toast('Device config is empty');
+    return;
+  }
+
+  state = fromToml(text);
+  render();
+
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  setBleState('loaded ' + time, 'Loaded ' + text.length + ' bytes from the device.');
+  toast('Loaded from device');
+}));
+
+bleSend.addEventListener('click', () => withDevice('Send', async () => {
+  await writeToDevice(toToml());
+
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  setBleState('sent ' + time, 'config.toml is on the device and already in effect.');
+  toast('Sent to device');
+}));
+
+describeBleIdle();
+refreshBleButtons();
 
 /* ---------------------------------------------------------- midi monitor */
 
@@ -1051,7 +1222,7 @@ function listInputs() {
     inputSelect.append(h('option', {}, 'No MIDI inputs'));
     inputSelect.disabled = true;
     monitorMeta.textContent = 'no inputs';
-    monitorHint.textContent = 'Plug the device in as a MIDI device (config button not held).';
+    monitorHint.textContent = 'Plug the device in over USB and it appears here as a MIDI input.';
     return;
   }
 
