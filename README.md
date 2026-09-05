@@ -10,9 +10,16 @@ I was going for a compact design that allowed the user to configure their Midi-M
 
 **[stephenbdennis.github.io/midi_mod](https://stephenbdennis.github.io/midi_mod/)**
 
-Pick a message for every input, watch the MIDI bytes it will put on the wire, and download the
-`config.toml`. It also imports a config you already have, and can listen to the device over Web MIDI
-so you can check what it is actually sending. Everything runs in the browser; nothing is uploaded.
+Pick a message for every input and watch the MIDI bytes it will put on the wire. There is a preset
+per module type (Buttons, Sliders, Pots), it imports a config you already have, and it can listen to
+the device over Web MIDI so you can check what it is actually sending. Everything runs in the
+browser; nothing is uploaded.
+
+**Sync** writes `config.toml` onto the device for you. Bring it up in config mode, press Sync, pick
+the drive once, and every later sync is a single click. It reads the file back to confirm the write
+landed. Sync needs the File System Access API, so it is Chrome, Edge and Opera only; everywhere else
+use Download and copy the file across yourself. Either way the device only picks up the new config
+when you eject the drive and replug without the config button held.
 
 ---
 

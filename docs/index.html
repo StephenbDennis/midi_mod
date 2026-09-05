@@ -22,14 +22,15 @@
     <button type="button" id="import-btn" class="btn">Import</button>
     <input type="file" id="import-file" accept=".toml,.txt,text/plain" hidden>
     <button type="button" id="copy-btn" class="btn">Copy</button>
-    <button type="button" id="download-btn" class="btn primary">Download config.toml</button>
+    <button type="button" id="download-btn" class="btn">Download</button>
+    <button type="button" id="sync-btn" class="btn primary">Sync to device</button>
   </div>
 </header>
 
 <p class="lede">
   Hold the config button while plugging the device in and it mounts as a USB drive.
-  Build your layout below, then drop the generated <code>config.toml</code> onto that drive
-  and replug without the button held.
+  Build your layout below, then sync it straight to that drive &mdash; or download
+  <code>config.toml</code> and copy it over yourself &mdash; and replug without the button held.
 </p>
 
 <main>
@@ -39,6 +40,21 @@
   </section>
 
   <aside class="side">
+    <section class="card">
+      <header class="card-head">
+        <h2>Device</h2>
+        <span class="meta" id="sync-meta">no drive</span>
+      </header>
+      <p class="hint" id="sync-hint">
+        Hold the config button while plugging the device in so it mounts as a drive,
+        then sync to write <code>config.toml</code> straight onto it.
+      </p>
+      <div class="monitor-controls">
+        <button type="button" id="sync-choose" class="btn small">Choose drive</button>
+        <button type="button" id="sync-forget" class="btn small ghost" hidden>Forget</button>
+      </div>
+    </section>
+
     <section class="card">
       <header class="card-head">
         <h2>config.toml</h2>

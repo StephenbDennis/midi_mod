@@ -316,45 +316,49 @@ function bytesFor(module, device, which) {
 
 /* ---------------------------------------------------------------- presets */
 
+// One per module type. The three boards each present five inputs to the
+// firmware, but the slider module wires two faders across them: inputs 2 and 4
+// mirror 1 and 3, and input 5 sits at ground.
 const PRESETS = [
   {
-    id: 'notes',
-    label: 'Notes',
-    title: 'Five note_on / note_off buttons, chromatic from C3',
+    id: 'buttons',
+    label: 'Buttons',
+    title: 'Button module — five keys sending note on / note off',
     apply(module, index) {
+      // Buttons come in through the ADC like everything else, so the smoothing
+      // has to be loose or a press reads as a slow ramp.
+      module.alpha = 0.5;
       module.devices.forEach((device, i) => {
-        Object.assign(device, newDevice(), { onChange: 'note_on', onStop: 'note_off', data: 48 + index * 5 + i });
-      });
-    },
-  },
-  {
-    id: 'cc',
-    label: 'Control change',
-    title: 'Five continuous controllers, one per input',
-    apply(module, index) {
-      module.devices.forEach((device, i) => {
-        Object.assign(device, newDevice(), { onChange: 'cc', data: 20 + index * 5 + i });
+        Object.assign(device, newDevice(), {
+          onChange: 'note_on',
+          onStop: 'note_off',
+          data: clamp(48 + index * DEVICE_COUNT + i, 0, 127),
+        });
       });
     },
   },
   {
     id: 'sliders',
     label: 'Sliders',
-    title: 'Two controllers on the slider module, which doubles up its inputs',
-    apply(module) {
+    title: 'Slider module — two faders on inputs 1 and 3; 2 and 4 mirror them, 5 is tied to ground',
+    apply(module, index) {
+      module.alpha = 0.3;
       module.devices.forEach((device) => Object.assign(device, newDevice()));
-      Object.assign(module.devices[0], { onChange: 'cc', data: 7 });
-      Object.assign(module.devices[2], { onChange: 'cc', data: 11 });
+      Object.assign(module.devices[0], { onChange: 'cc', data: clamp(7 + index * 2, 0, 127) });
+      Object.assign(module.devices[2], { onChange: 'cc', data: clamp(8 + index * 2, 0, 127) });
     },
   },
   {
-    id: 'transport',
-    label: 'Transport',
-    title: 'System real time transport messages on the five buttons',
-    apply(module) {
-      const messages = ['start', 'stop', 'continue', 'tune_request', 'song_select'];
+    id: 'pots',
+    label: 'Pots',
+    title: 'Pot module — five knobs sending control change',
+    apply(module, index) {
+      module.alpha = 0.3;
       module.devices.forEach((device, i) => {
-        Object.assign(device, newDevice(), { onChange: messages[i] });
+        Object.assign(device, newDevice(), {
+          onChange: 'cc',
+          data: clamp(20 + index * DEVICE_COUNT + i, 0, 127),
+        });
       });
     },
   },
@@ -823,6 +827,182 @@ setTheme(storedTheme || (matchMedia('(prefers-color-scheme: light)').matches ? '
 themeButton.addEventListener('click', () => {
   setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
 });
+
+/* ----------------------------------------------------------- device sync */
+
+/* The device mounts as a plain USB drive in config mode, so syncing is a
+ * matter of writing config.toml into it. The File System Access API is the
+ * only way a page can do that, and it is Chromium-only, hence the fallback to
+ * Download everywhere else. The directory handle is kept in IndexedDB (it
+ * cannot be serialised into localStorage) so the next sync is one click. */
+
+const DB_NAME = 'midimod';
+const DB_STORE = 'handles';
+const DIR_KEY = 'device-dir';
+
+const syncButton = document.getElementById('sync-btn');
+const syncChoose = document.getElementById('sync-choose');
+const syncForget = document.getElementById('sync-forget');
+const syncMeta = document.getElementById('sync-meta');
+const syncHint = document.getElementById('sync-hint');
+
+const canSync = typeof window.showDirectoryPicker === 'function';
+let deviceDir = null;
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function dbRequest(mode, run) {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const request = run(db.transaction(DB_STORE, mode).objectStore(DB_STORE));
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  }));
+}
+
+const rememberDir = (handle) => dbRequest('readwrite', (store) => store.put(handle, DIR_KEY));
+const recallDir = () => dbRequest('readonly', (store) => store.get(DIR_KEY));
+const forgetDir = () => dbRequest('readwrite', (store) => store.delete(DIR_KEY));
+
+function setSyncState(text, message, tone) {
+  syncMeta.textContent = text;
+  syncHint.className = 'hint' + (tone ? ' ' + tone : '');
+  syncHint.replaceChildren();
+  syncHint.append(message);
+  syncForget.hidden = !deviceDir;
+}
+
+function describeIdle() {
+  if (!canSync) {
+    setSyncState('unsupported',
+      'This browser cannot write to a drive directly. Use Download instead, and copy the file over yourself. Chrome, Edge and Opera support it.');
+    syncButton.disabled = true;
+    syncChoose.disabled = true;
+    return;
+  }
+
+  if (deviceDir) {
+    setSyncState('ready', 'Syncing to ' + deviceDir.name + '. Writes config.toml, replacing whatever is there.');
+  } else {
+    setSyncState('no drive',
+      'Hold the config button while plugging the device in so it mounts as a drive, then sync to write config.toml straight onto it.');
+  }
+}
+
+// A MIDI-Mod drive has been in config mode at least once, so it carries a
+// reference.txt or a config.toml. Anything else is probably the wrong folder.
+async function looksLikeDevice(dir) {
+  for (const name of ['reference.txt', 'config.toml']) {
+    try {
+      await dir.getFileHandle(name);
+      return true;
+    } catch (err) {
+      /* keep looking */
+    }
+  }
+  return false;
+}
+
+async function ensurePermission(dir) {
+  const options = { mode: 'readwrite' };
+  if ((await dir.queryPermission(options)) === 'granted') return true;
+  return (await dir.requestPermission(options)) === 'granted';
+}
+
+async function chooseDirectory() {
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: 'midimod-drive', mode: 'readwrite' });
+  } catch (err) {
+    return null; // the picker was dismissed
+  }
+
+  if (!(await looksLikeDevice(dir)) &&
+      !confirm('No reference.txt or config.toml in "' + dir.name + '".\n\n' +
+               'That folder may not be the MIDI-Mod drive. Write config.toml there anyway?')) {
+    return null;
+  }
+
+  deviceDir = dir;
+  try {
+    await rememberDir(dir);
+  } catch (err) {
+    /* the handle just will not survive a reload */
+  }
+  describeIdle();
+  return dir;
+}
+
+async function syncToDevice() {
+  if (!canSync) return;
+
+  // Permission work has to happen before any long await, while the click
+  // still counts as a user gesture.
+  let dir = deviceDir;
+  if (dir) {
+    if (!(await ensurePermission(dir))) {
+      setSyncState('blocked', 'Permission to write to ' + dir.name + ' was declined.', 'warn');
+      return;
+    }
+  } else {
+    dir = await chooseDirectory();
+    if (!dir) return;
+  }
+
+  const text = toToml();
+  syncButton.disabled = true;
+
+  try {
+    const file = await dir.getFileHandle('config.toml', { create: true });
+    const writable = await file.createWritable();
+    await writable.write(text);
+    await writable.close();
+
+    // Read it back: a drive that filled up or was pulled mid-write fails here
+    // rather than silently leaving a truncated config behind.
+    const written = await (await file.getFile()).text();
+    if (written !== text) throw new Error('the file on the drive does not match what was sent');
+
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setSyncState('synced ' + time,
+      'Wrote ' + text.length + ' bytes to ' + dir.name + '. Eject the drive, then replug without the config button held.',
+      'ok');
+    toast('Synced to ' + dir.name);
+  } catch (err) {
+    setSyncState('failed', 'Could not write config.toml: ' + (err && err.message ? err.message : err), 'warn');
+    toast('Sync failed');
+  } finally {
+    syncButton.disabled = false;
+  }
+}
+
+syncButton.addEventListener('click', syncToDevice);
+syncChoose.addEventListener('click', () => chooseDirectory());
+syncForget.addEventListener('click', async () => {
+  deviceDir = null;
+  try {
+    await forgetDir();
+  } catch (err) {
+    /* nothing stored */
+  }
+  describeIdle();
+});
+
+describeIdle();
+
+if (canSync) {
+  recallDir().then((dir) => {
+    if (!dir) return;
+    deviceDir = dir;
+    describeIdle();
+  }).catch(() => { /* no stored handle */ });
+}
 
 /* ---------------------------------------------------------- midi monitor */
 
